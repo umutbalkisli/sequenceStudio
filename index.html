@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sequence Studio</title>
+  <meta name="description" content="Mermaid-based visual sequence diagram editor that runs entirely in the browser." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b6cff'/%3E%3Cpath d='M9 7v18M23 7v18' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M9 12h12m-3-3 3 3-3 3M23 20H11m3-3-3 3 3 3' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="assets/css/app.css" />
+  <script>
+    // Tema yanıp sönmesini önlemek için erken uygula
+    try {
+      var s = JSON.parse(localStorage.getItem('seqstudio.settings') || '{}');
+      var t = s.appTheme || 'system';
+      if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.dataset.theme = t;
+    } catch (e) { document.documentElement.dataset.theme = 'dark'; }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <!-- ÜST BAR -->
+    <header class="topbar">
+      <div class="tb-left">
+        <button class="icon-btn" id="btnDocs" data-i18n-title="tb.docs"><i data-icon="menu"></i></button>
+        <div class="brand">
+          <span class="brand-mark"><i data-icon="logo"></i></span>
+          <span class="brand-name">Sequence<b>Studio</b></span>
+        </div>
+        <span class="tb-sep"></span>
+        <input id="docName" class="doc-name" spellcheck="false" data-i18n-ph="doc.untitled" />
+        <span class="save-state" id="saveState" data-i18n-title="tb.savedTitle"><i data-icon="check"></i><span data-i18n="tb.saved"></span></span>
+      </div>
+      <div class="tb-right">
+        <div class="btn-group">
+          <button class="icon-btn" id="btnUndo" data-i18n-title="tb.undo"><i data-icon="undo"></i></button>
+          <button class="icon-btn" id="btnRedo" data-i18n-title="tb.redo"><i data-icon="redo"></i></button>
+        </div>
+        <button class="btn ghost" id="btnTemplates"><i data-icon="layout"></i><span data-i18n="tb.templates"></span></button>
+        <button class="btn ghost" id="btnImport"><i data-icon="upload"></i><span data-i18n="tb.import"></span></button>
+        <button class="icon-btn" id="btnHelp" data-i18n-title="tb.help"><i data-icon="help"></i></button>
+        <button class="lang-btn" id="btnLang" data-i18n-title="tb.lang"><i data-icon="globe"></i><span id="langLabel">TR</span></button>
+        <button class="icon-btn" id="btnTheme"><i data-icon="moon"></i></button>
+        <button class="btn primary" id="btnExport"><i data-icon="download"></i><span data-i18n="tb.export"></span></button>
+      </div>
+    </header>
+
+    <main class="workspace" id="workspace">
+      <!-- SOL: EDİTÖR -->
+      <section class="pane pane-editor" id="paneEditor">
+        <div class="pane-head">
+          <button class="icon-btn" id="btnCollapse" data-i18n-title="editor.collapse"><i data-icon="panelClose"></i></button>
+          <div class="seg" id="viewSeg" role="tablist">
+            <button data-view="builder" class="active" role="tab"><i data-icon="blocks"></i><span data-i18n="view.builder"></span></button>
+            <button data-view="code" role="tab"><i data-icon="code"></i><span data-i18n="view.code"></span></button>
+          </div>
+          <div class="pane-head-right" id="builderMeta">
+            <label class="switch" data-i18n-title="opt.autoActTitle">
+              <input type="checkbox" id="optAutoAct" /><span class="switch-ui"></span><span data-i18n="opt.autoAct"></span>
+            </label>
+            <label class="switch" data-i18n-title="opt.autonumberTitle">
+              <input type="checkbox" id="optAutonumber" /><span class="switch-ui"></span><span data-i18n="opt.autonumber"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- GÖRSEL OLUŞTURUCU -->
+        <div class="view view-builder active" id="viewBuilder">
+          <div class="palette" id="palette">
+            <div class="pal-group">
+              <div class="pal-title" data-i18n="pal.participants"></div>
+              <div class="pal-items" id="palParticipants"></div>
+            </div>
+            <div class="pal-group">
+              <div class="pal-title" data-i18n="pal.flow"></div>
+              <div class="pal-items" id="palSteps"></div>
+            </div>
+          </div>
+
+          <div class="builder-scroll" id="builderScroll">
+            <div class="b-section">
+              <div class="b-section-head">
+                <h3 data-i18n="sec.diagram"></h3>
+              </div>
+              <div class="title-row">
+                <i data-icon="type"></i>
+                <input id="diagramTitle" data-i18n-ph="title.ph" spellcheck="false" />
+              </div>
+            </div>
+
+            <div class="b-section">
+              <div class="b-section-head">
+                <h3><span data-i18n="sec.participants"></span> <span class="count" id="partCount">0</span></h3>
+                <span class="hint"><i data-icon="link"></i><span data-i18n="hint.link"></span></span>
+              </div>
+              <div class="participants" id="participants"></div>
+            </div>
+
+            <div class="b-section grow">
+              <div class="b-section-head">
+                <h3><span data-i18n="sec.flow"></span> <span class="count" id="stepCount">0</span></h3>
+                <span class="hint"><i data-icon="grip"></i><span data-i18n="hint.flow"></span></span>
+              </div>
+              <div class="flow" id="flow"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- KOD EDİTÖRÜ -->
+        <div class="view view-code" id="viewCode">
+          <div class="code-wrap">
+            <div class="gutter" id="gutter"></div>
+            <div class="code-area">
+              <pre class="code-hl" id="codeHl" aria-hidden="true"></pre>
+              <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off"></textarea>
+            </div>
+          </div>
+          <div class="code-status" id="codeStatus"></div>
+        </div>
+      </section>
+
+      <div class="resizer" id="resizer" data-i18n-title="resizer"></div>
+
+      <!-- SAĞ: ÖNİZLEME -->
+      <section class="pane pane-preview" id="panePreview">
+        <div class="pane-head">
+          <div class="ph-left">
+            <button class="icon-btn" id="btnExpand" data-i18n-title="editor.expand"><i data-icon="panelOpen"></i></button>
+            <div class="ph-title"><i data-icon="eye"></i><span data-i18n="preview"></span></div>
+          </div>
+          <div class="pane-head-right">
+            <select id="mmTheme" class="select sm" data-i18n-title="mm.theme">
+              <option value="auto" data-i18n="mm.auto"></option>
+              <option value="studio-light" data-i18n="mm.studioLight"></option>
+              <option value="studio-dark" data-i18n="mm.studioDark"></option>
+              <option value="default">Mermaid Default</option>
+              <option value="neutral">Neutral</option>
+              <option value="forest">Forest</option>
+              <option value="dark">Dark</option>
+            </select>
+            <label class="switch" data-i18n-title="opt.colorizeTitle">
+              <input type="checkbox" id="optColorize" /><span class="switch-ui"></span><span data-i18n="opt.colorize"></span>
+            </label>
+            <label class="switch" data-i18n-title="opt.mirrorTitle">
+              <input type="checkbox" id="optMirror" /><span class="switch-ui"></span><span data-i18n="opt.mirror"></span>
+            </label>
+            <span class="ph-sep"></span>
+            <button class="icon-btn" id="btnFullscreen" data-i18n-title="fs.enter"><i data-icon="maximize"></i></button>
+          </div>
+        </div>
+        <div class="viewport" id="viewport">
+          <div class="canvas" id="canvas"></div>
+          <div class="empty-state" id="emptyState" hidden>
+            <i data-icon="logo"></i>
+            <p data-i18n="empty.preview"></p>
+          </div>
+          <div class="render-error" id="renderError" hidden></div>
+          <div class="zoombar">
+            <button class="icon-btn sm" id="zoomOut" data-i18n-title="zoom.out"><i data-icon="minus"></i></button>
+            <button class="zoom-val" id="zoomVal" data-i18n-title="zoom.reset">100%</button>
+            <button class="icon-btn sm" id="zoomIn" data-i18n-title="zoom.in"><i data-icon="plus"></i></button>
+            <span class="zb-sep"></span>
+            <button class="icon-btn sm" id="zoomFit" data-i18n-title="zoom.fit"><i data-icon="fit"></i></button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Diyagram listesi çekmecesi -->
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <h2 data-i18n="tb.docs"></h2>
+      <button class="icon-btn" data-close><i data-icon="x"></i></button>
+    </div>
+    <button class="btn primary block" id="btnNewDoc"><i data-icon="plus"></i><span data-i18n="drawer.new"></span></button>
+    <div class="doc-list" id="docList"></div>
+    <p class="drawer-foot"><i data-icon="lock"></i><span data-i18n="drawer.foot"></span></p>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <!-- Modal -->
+  <div class="modal-root" id="modalRoot" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2 id="modalTitle"></h2>
+        <button class="icon-btn" data-close><i data-icon="x"></i></button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Popover -->
+  <div class="popover" id="popover" hidden></div>
+  <svg class="link-overlay" id="linkOverlay"><path id="linkPath" /></svg>
+  <div class="toasts" id="toasts"></div>
+  <input type="file" id="fileInput" accept=".mmd,.mermaid,.txt,.md" hidden />
+
+  <script src="vendor/mermaid/mermaid.min.js"></script>
+  <script src="assets/js/i18n.js"></script>
+  <script src="assets/js/model.js"></script>
+  <script src="assets/js/templates.js"></script>
+  <script src="assets/js/icons.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
