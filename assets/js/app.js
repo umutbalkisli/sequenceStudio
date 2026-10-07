@@ -522,6 +522,7 @@
       if (seq !== S.renderSeq) return;
       el.canvas.innerHTML = '<div class="paper">' + svg + '</div>';
       if (S.settings.colorize) colorizeSvg($('.paper svg', el.canvas));
+      colorizeBlocks($('.paper svg', el.canvas), S.settings.colorize);
       el.canvas.classList.remove('stale');
       el.renderError.hidden = true;
       S.lastOk = true;
@@ -601,6 +602,67 @@
       if (!l) return;
       paint(el, colorOf(l.id), isActivation ? (dark ? 0.45 : 0.3) : (dark ? 0.28 : 0.16));
     });
+  }
+
+  /**
+   * loop/alt/opt/par/critical/break bloklarına, builder'daki tip rengiyle hafif
+   * bir arka plan verir; kenarları ve etiket kutusunu aynı renge boyar. Arka
+   * planlar ayrı bir katmanda en alta çizilir ki mesaj okları üstte kalsın.
+   * İç içe bloklarda içteki blok dıştakinin üzerine gelir.
+   * Kullanıcının seçtiği renk (block.color) her zaman uygulanır; tip renkleri
+   * yalnızca "Renkli" açıkken (auto).
+   */
+  function colorizeBlocks(svg, auto) {
+    if (!svg) return;
+    const bg = PAPER_BG[mmThemeName()] || '#ffffff';
+    const dark = hexToRgb(bg).reduce((a, v) => a + v, 0) < 384;
+    const root = getComputedStyle(document.documentElement);
+    const NS = 'http://www.w3.org/2000/svg';
+    // rect dışındaki bloklar kaynak sırasıyla (ön-sıra) çizilir; SVG gruplarını
+    // üst kenara göre sıralayınca aynı sıraya denk gelirler.
+    const modelBlocks = [];
+    M.walk(S.model.items, (it) => { if (it.kind === 'block' && it.type !== 'rect') modelBlocks.push(it); });
+    const groups = $$('g[data-et="control-structure"]', svg).map((g) => {
+      const lines = $$('line.loopLine', g).filter((l) => !l.style.strokeDasharray);
+      if (!lines.length) return null;
+      const xs = lines.flatMap((l) => [+l.getAttribute('x1'), +l.getAttribute('x2')]);
+      const ys = lines.flatMap((l) => [+l.getAttribute('y1'), +l.getAttribute('y2')]);
+      const x = Math.min(...xs), y = Math.min(...ys);
+      return { g, x, y, w: Math.max(...xs) - x, ht: Math.max(...ys) - y };
+    }).filter(Boolean).sort((a, b) => a.y - b.y || b.w * b.ht - a.w * a.ht);
+    const sameShape = groups.length === modelBlocks.length;
+
+    const blocks = [];
+    groups.forEach((b, i) => {
+      const { g } = b;
+      const lbl = $('.labelText', g);
+      const type = (lbl ? lbl.textContent : '').trim().toLowerCase().replace(/_over$/, '');
+      const custom = sameShape && modelBlocks[i].color;
+      const c = custom || (auto ? root.getPropertyValue('--c-' + type).trim() : '');
+      if (!/^#[0-9a-f]{3,6}$/i.test(c)) return;
+      b.c = c;
+      blocks.push(b);
+
+      $$('line.loopLine', g).forEach((l) => { l.style.stroke = c; });
+      $$('.labelBox', g).forEach((b) => { b.style.fill = mix(c, bg, dark ? 0.38 : 0.22); b.style.stroke = c; });
+      const ink = dark ? mix(c, '#ffffff', 0.55) : mix(c, '#000000', 0.62);
+      $$('.labelText, .labelText tspan', g).forEach((t) => { t.style.fill = ink; });
+    });
+    if (!blocks.length) return;
+
+    const parent = blocks[0].g.parentNode;
+    const layer = document.createElementNS(NS, 'g');
+    layer.setAttribute('class', 'block-bgs');
+    blocks.sort((a, b) => b.w * b.ht - a.w * a.ht).forEach((b) => {
+      const r = document.createElementNS(NS, 'rect');
+      r.setAttribute('x', b.x); r.setAttribute('y', b.y);
+      r.setAttribute('width', b.w); r.setAttribute('height', b.ht);
+      r.style.fill = mix(b.c, bg, dark ? 0.13 : 0.07);
+      r.style.stroke = 'none';
+      layer.append(r);
+    });
+    const first = Array.from(parent.children).find((n) => !/^(style|defs)$/i.test(n.tagName));
+    parent.insertBefore(layer, first || null);
   }
 
   function applyZoom() {
@@ -1528,7 +1590,7 @@
     const def = M.BLOCK_TYPES[it.type] || { label: it.type, branch: 'and' };
     const branchKw = it.type === 'par_over' ? 'and' : def.branch;
     const collapsed = S.collapsed.has(it.uid);
-    const node = h('div', { class: `step block block-${it.type}` + (S.selected === it.uid ? ' selected' : '') + (collapsed ? ' collapsed' : ''), 'data-uid': it.uid });
+    const node = h('div', { class: `step block block-${it.type}` + (S.selected === it.uid ? ' selected' : '') + (collapsed ? ' collapsed' : ''), 'data-uid': it.uid, style: it.color && it.type !== 'rect' ? `--c:${it.color}` : null });
     const b0 = it.branches[0];
 
     let labelEl;
@@ -1545,6 +1607,7 @@
     const head = h('div', { class: 'block-head' },
       handleEl(),
       h('span', { class: 'kind-badge' }, ico(it.type === 'par_over' ? 'par' : it.type), def.label),
+      it.type !== 'rect' ? blockColorBtn(it) : null,
       labelEl,
       collapsed ? h('span', { class: 'collapsed-info' }, T('block.steps', { n: inner })) : null,
       branchKw ? h('button', { class: 'add-branch', title: T('block.addBranch', { kw: branchKw }), onclick: () => {
@@ -1579,6 +1642,39 @@
       node.append(brEl);
     });
     return node;
+  }
+
+  // Blok rengi: hazır renkler + özel renk + varsayılana dön. Kodda "%% @color #hex" olarak saklanır.
+  const BLOCK_SWATCHES = ['#f0a020', '#f97a3c', '#f05252', '#ec5a8f', '#9b6bff', '#6c7cff', '#3aa0ff', '#1fb5c9', '#2fbf7f', '#8a93a6'];
+  function closeColorMenus() { $$('.color-menu').forEach((m) => m.remove()); }
+  document.addEventListener('pointerdown', (e) => {
+    if (!(e.target.closest && e.target.closest('.color-menu, .block-color'))) closeColorMenus();
+  });
+  function blockColorBtn(it) {
+    const setColor = (c) => {
+      if (c) it.color = c; else delete it.color;
+      closeColorMenus();
+      commit();
+      flushHistory();
+    };
+    const btn = h('button', { class: 'block-color' + (it.color ? ' custom' : ''), title: T('block.color') });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = btn.parentNode.querySelector('.color-menu');
+      closeColorMenus();
+      if (open) return;
+      const custom = h('input', { type: 'color', value: it.color || getComputedStyle(btn).getPropertyValue('--c').trim() || '#6c7cff' });
+      custom.addEventListener('change', () => setColor(custom.value.toLowerCase()));
+      const menu = h('div', { class: 'color-menu', onclick: (ev) => ev.stopPropagation() },
+        h('div', { class: 'swatches' }, BLOCK_SWATCHES.map((c) => h('button', {
+          class: 'swatch' + (it.color === c ? ' active' : ''), style: `background:${c}`, title: c, onclick: () => setColor(c),
+        }))),
+        h('div', { class: 'cm-row' },
+          h('label', { class: 'cm-custom' }, custom, h('span', null, T('block.colorCustom'))),
+          it.color ? h('button', { class: 'btn ghost sm', onclick: () => setColor(null) }, T('block.colorReset')) : null));
+      btn.after(menu);
+    });
+    return btn;
   }
 
   function unwrapBlock(nodeUid) {

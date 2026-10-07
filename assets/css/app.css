@@ -483,6 +483,22 @@ button { cursor: pointer; }
 .swatches { display: flex; gap: 4px; }
 .swatch { width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--border-strong); padding: 0; }
 .swatch:hover { transform: scale(1.12); }
+.swatch.active { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--text-2); }
+.block-head { position: relative; }
+.block-color {
+  width: 18px; height: 18px; flex: none; padding: 0; border-radius: 50%; cursor: pointer;
+  background: var(--c); border: 2px solid var(--panel); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 60%, var(--border-strong));
+}
+.block-color:hover { transform: scale(1.12); }
+.color-menu {
+  position: absolute; left: 34px; top: calc(100% - 4px); z-index: 20; padding: 10px; display: flex; flex-direction: column; gap: 10px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg);
+}
+.color-menu .swatches { display: grid; grid-template-columns: repeat(5, 22px); gap: 6px; }
+.color-menu .swatch { width: 22px; height: 22px; border-radius: 6px; border: 0; }
+.cm-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cm-custom { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+.cm-custom input { width: 26px; height: 22px; padding: 0; border: 1px solid var(--border-strong); border-radius: 6px; background: none; cursor: pointer; }
 
 /* ---------- Code editor ---------- */
 .code-wrap { flex: 1; min-height: 0; display: flex; background: var(--code-bg); overflow: hidden; position: relative; }

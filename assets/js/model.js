@@ -67,6 +67,8 @@
   const BOX_RE = /^box\b\s*(.*)$/i;
   const TITLE_RE = /^title(?:\s*:\s*|\s+)(.*)$/i;
   const AUTONUM_RE = /^autonumber\b\s*(.*)$/i;
+  // Bloğun hemen üstündeki "%% @color #hex" satırı o bloğun rengidir (Mermaid yorum olarak yok sayar)
+  const COLOR_RE = /^%%\s*@color\s+(#[0-9a-f]{6})\s*$/i;
 
   // Mesaj metninde ; ve # Mermaid için özel karakterlerdir → entity olarak saklanır
   function encodeText(s) {
@@ -122,6 +124,7 @@
     let box = null;
     let headerSeen = false;
     let messageSeen = false;
+    let pendingColor = null;
 
     for (; i < lines.length; i++) {
       const rawLine = lines[i];
@@ -133,9 +136,16 @@
       if (!headerSeen && /^sequenceDiagram\b/i.test(line)) { headerSeen = true; continue; }
       headerSeen = true;
 
+      let m;
+      if ((m = line.match(COLOR_RE))) {
+        let j = i + 1;
+        while (j < lines.length && !lines[j].trim()) j++;
+        const next = j < lines.length ? lines[j].trim().match(BLOCK_RE) : null;
+        if (next && next[1].toLowerCase() !== 'rect' && !box) { pendingColor = m[1].toLowerCase(); continue; }
+      }
       if (line.startsWith('%%')) { push({ uid: uid(), kind: 'raw', text: line }); continue; }
 
-      let m;
+
       if (box) {
         if (/^end$/i.test(line)) { box = null; continue; }
         if ((m = line.match(PART_RE))) { addParticipant(m, box.id); continue; }
@@ -177,6 +187,7 @@
       if ((m = line.match(BLOCK_RE))) {
         let type = m[1].toLowerCase();
         const block = { uid: uid(), kind: 'block', type, branches: [{ uid: uid(), label: decodeText(m[2].trim()), items: [] }] };
+        if (pendingColor) { block.color = pendingColor; pendingColor = null; }
         push(block);
         stack.push({ node: block, list: block.branches[0].items });
         continue;
@@ -296,6 +307,7 @@
         case 'block': {
           const def = BLOCK_TYPES[it.type] || BLOCK_TYPES.loop;
           const branchKw = it.type === 'par_over' ? 'and' : def.branch;
+          if (it.color && it.type !== 'rect') out.push(ind + '%% @color ' + it.color);
           it.branches.forEach((br, idx) => {
             const kw = idx === 0 ? it.type : branchKw || 'else';
             const lbl = it.type === 'rect' ? br.label : encodeText(br.label);
