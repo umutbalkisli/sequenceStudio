@@ -77,6 +77,18 @@
       // Çekmece
       'drawer.new': 'Yeni diyagram',
       'drawer.foot': 'Tüm veriler yalnızca bu tarayıcıda saklanır.',
+      'folder.new': 'Yeni klasör',
+      'folder.newShort': 'Klasör',
+      'folder.newTitle': 'Yeni klasör oluştur',
+      'folder.newEllipsis': 'Yeni klasör…',
+      'folder.newDoc': 'Bu klasörde yeni diyagram',
+      'folder.rename': 'Yeniden adlandır',
+      'folder.delete': 'Klasörü sil',
+      'folder.confirmDelete': '"{name}" klasörü silinsin mi? İçindeki {n} diyagram silinmez, klasör dışına taşınır.',
+      'folder.moveTo': 'Klasöre taşı',
+      'folder.root': 'Klasörsüz',
+      'folder.empty': 'Boş klasör — diyagramları buraya sürükleyin',
+      'folder.rootEmpty': 'Klasörden çıkarmak için buraya sürükleyin',
 
       // Palet / adımlar
       'step.message': 'Mesaj',
@@ -384,6 +396,18 @@
 
       'drawer.new': 'New diagram',
       'drawer.foot': 'All data stays in this browser only.',
+      'folder.new': 'New folder',
+      'folder.newShort': 'Folder',
+      'folder.newTitle': 'Create a new folder',
+      'folder.newEllipsis': 'New folder…',
+      'folder.newDoc': 'New diagram in this folder',
+      'folder.rename': 'Rename',
+      'folder.delete': 'Delete folder',
+      'folder.confirmDelete': 'Delete folder "{name}"? Its {n} diagram(s) will not be deleted; they move out of the folder.',
+      'folder.moveTo': 'Move to folder',
+      'folder.root': 'Unfiled',
+      'folder.empty': 'Empty folder — drag diagrams here',
+      'folder.rootEmpty': 'Drag here to remove from a folder',
 
       'step.message': 'Message',
       'step.reply': 'Reply',

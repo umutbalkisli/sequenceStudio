@@ -173,7 +173,10 @@
       <h2 data-i18n="tb.docs"></h2>
       <button class="icon-btn" data-close><i data-icon="x"></i></button>
     </div>
-    <button class="btn primary block" id="btnNewDoc"><i data-icon="plus"></i><span data-i18n="drawer.new"></span></button>
+    <div class="drawer-actions">
+      <button class="btn primary" id="btnNewDoc"><i data-icon="plus"></i><span data-i18n="drawer.new"></span></button>
+      <button class="btn" id="btnNewFolder" data-i18n-title="folder.newTitle"><i data-icon="folderPlus"></i><span data-i18n="folder.newShort"></span></button>
+    </div>
     <div class="doc-list" id="docList"></div>
     <p class="drawer-foot"><i data-icon="lock"></i><span data-i18n="drawer.foot"></span></p>
   </aside>
