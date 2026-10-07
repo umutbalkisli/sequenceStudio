@@ -69,6 +69,8 @@
   const AUTONUM_RE = /^autonumber\b\s*(.*)$/i;
   // Bloğun hemen üstündeki "%% @color #hex" satırı o bloğun rengidir (Mermaid yorum olarak yok sayar)
   const COLOR_RE = /^%%\s*@color\s+(#[0-9a-f]{6})\s*$/i;
+  // "%% @auto" ardından gelen activate/deactivate satırları otomatik aktivasyonun ürettiği düzeltmelerdir
+  const AUTO_RE = /^%%\s*@auto\s*$/i;
 
   // Mesaj metninde ; ve # Mermaid için özel karakterlerdir → entity olarak saklanır
   function encodeText(s) {
@@ -125,6 +127,7 @@
     let headerSeen = false;
     let messageSeen = false;
     let pendingColor = null;
+    let autoNext = false;
 
     for (; i < lines.length; i++) {
       const rawLine = lines[i];
@@ -135,6 +138,10 @@
 
       if (!headerSeen && /^sequenceDiagram\b/i.test(line)) { headerSeen = true; continue; }
       headerSeen = true;
+
+      const autoHere = autoNext;
+      autoNext = false;
+      if (AUTO_RE.test(line)) { autoNext = true; continue; }
 
       let m;
       if ((m = line.match(COLOR_RE))) {
@@ -180,7 +187,9 @@
 
       if ((m = line.match(ACT_RE))) {
         ensureParticipant(m[2]);
-        push({ uid: uid(), kind: 'activation', action: m[1].toLowerCase(), participant: m[2].trim() });
+        const a = { uid: uid(), kind: 'activation', action: m[1].toLowerCase(), participant: m[2].trim() };
+        if (autoHere) { a.auto = true; autoNext = true; }
+        push(a);
         continue;
       }
 
@@ -289,7 +298,8 @@
 
   function writeItems(items, depth, out) {
     const ind = IND.repeat(depth);
-    for (const it of items) {
+    items.forEach((it, i) => {
+      const prev = items[i - 1];
       switch (it.kind) {
         case 'message': {
           const text = encodeText(it.text);
@@ -302,6 +312,7 @@
           break;
         }
         case 'activation':
+          if (it.auto && !(prev && prev.kind === 'activation' && prev.auto)) out.push(ind + '%% @auto');
           out.push(ind + it.action + ' ' + it.participant);
           break;
         case 'block': {
@@ -321,7 +332,7 @@
           out.push(ind + it.text);
           break;
       }
-    }
+    });
   }
 
   // ---- Model yardımcıları -------------------------------------------------
@@ -374,10 +385,11 @@
    * Önizleme için bunları "…" yer tutucularıyla dolduran bir kopya üretir.
    * Gerekmiyorsa null döner.
    */
+  const isEmptyBranch = (b) => b.items.every((it) => it.kind === 'activation' && it.auto);
   function previewSafe(model) {
     let needs = false;
     walk(model.items, (it) => {
-      if (it.kind === 'block' && it.branches.some((b) => !b.items.length)) needs = true;
+      if (it.kind === 'block' && it.branches.some(isEmptyBranch)) needs = true;
       if (it.kind === 'note' && !String(it.text).trim()) needs = true;
     });
     if (!needs || !model.participants.length) return null;
@@ -388,7 +400,7 @@
       if (it.kind === 'note' && !String(it.text).trim()) it.text = '…';
       if (it.kind === 'block') {
         it.branches.forEach((b) => {
-          if (!b.items.length) b.items.push({ uid: 'ph', kind: 'note', position: 'over', targets: span, text: '…' });
+          if (isEmptyBranch(b)) b.items.unshift({ uid: 'ph', kind: 'note', position: 'over', targets: span, text: '…' });
         });
       }
     });
@@ -408,69 +420,146 @@
   }
 
   /**
-   * Senkron çağrıları (A->>B) aynı çift arasındaki yanıtla (B-->>A) eşleştirir ve
-   * çağrıya "+", yanıta "-" işareti koyar. Aynı seviyedeki (aynı liste) yanıt tercih
-   * edilir; böylece alt/break içindeki erken dönüşler aktivasyonu erken bitirmez.
-   * Mermaid kapanmayan aktivasyonu çizmediği ve fazla kapatmada hata verdiği için
-   * yalnızca dengeli çiftler üretilir. Değişiklik olduysa true döner.
+   * Senkron çağrıları (A->>B) yanıtlarıyla (B-->>A) eşleştirip aktivasyonları çıkarır.
+   *
+   * Mermaid aktivasyonları kod sırasıyla, doğrusal işler; oysa alt/else gibi
+   * kollar birbirinin alternatifidir. Bu yüzden akış, kollara duyarlı olarak
+   * simüle edilir ("mantıksal durum" = açık aktivasyon çerçeveleri) ve
+   * Mermaid'in doğrusal sayacı mantıksal durumdan saptığı yerlere otomatik
+   * activate/deactivate satırları (auto: true) eklenir:
+   *  - alt/critical: her kol bloğun başındaki durumdan başlar (kol başına düzeltme).
+   *  - opt: gövde + "hiç girilmedi" yolu; break: blok sonrası, girilmeyen yoldan devam eder.
+   *  - loop/par/rect: kollar sırayla çalışır.
+   *  - Blok sonrası durum, kolların bitiş durumlarının birleşimidir; birleşim ile
+   *    doğrusal sayaç arasındaki fark bloktan hemen sonra düzeltilir.
+   *  - Bir kolda açık kalıp bloktan sonra hiç kapanmayacak çerçeve kolun sonunda
+   *    kapatılır (Mermaid kapanmayan aktivasyonu çizmez).
+   * Elle girilmiş activate/deactivate satırları korunur ve hesaba katılır.
+   * Değişiklik olduysa true döner.
    */
   function inferActivations(model) {
-    const msgs = [];
-    const order = []; // açık activate/deactivate satırları dahil doğrusal sıra
-    const visit = (items) => {
-      for (const it of items) {
-        if (it.kind === 'message') { msgs.push({ node: it, list: items, pair: -1 }); order.push(msgs[msgs.length - 1]); }
-        else if (it.kind === 'activation') order.push({ explicit: it });
-        else if (it.kind === 'block') it.branches.forEach((b) => visit(b.items));
+    const before = serialize(model);
+
+    // 1) Önceki otomatik düzeltmeleri temizle, mesajları sırala
+    const strip = (items) => {
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        if (it.kind === 'activation' && it.auto) items.splice(i, 1);
+        else if (it.kind === 'block') it.branches.forEach((b) => strip(b.items));
       }
     };
-    visit(model.items);
-    const before = msgs.map((m) => m.node.act || '');
-    const act = msgs.map(() => '');
-    const used = new Set();
+    strip(model.items);
 
-    msgs.forEach((c, i) => {
-      const { from, to, arrow } = c.node;
-      if (!isCall(arrow) || from === to) return;
-      let match = -1, fallback = -1;
-      for (let k = i + 1; k < msgs.length; k++) {
-        if (used.has(k)) continue;
-        const r = msgs[k].node;
-        if (r.from !== to || r.to !== from || !isReply(r.arrow)) continue;
-        if (msgs[k].list === c.list) { match = k; break; }
-        if (fallback < 0) fallback = k;
+    const pos = new Map(); // mesaj → doğrusal sıra
+    const endPos = new Map(); // blok → son mesajın sırası
+    const replyPos = new Map(); // "çağıran>çağrılan" → yanıtların sıraları
+    let n = 0;
+    const index = (items) => {
+      for (const it of items) {
+        if (it.kind === 'message') {
+          pos.set(it, n++);
+          if (isReply(it.arrow) && it.from !== it.to) {
+            const k = it.to + '>' + it.from;
+            if (!replyPos.has(k)) replyPos.set(k, []);
+            replyPos.get(k).push(pos.get(it));
+          }
+        } else if (it.kind === 'block') {
+          it.branches.forEach((b) => index(b.items));
+          endPos.set(it, n - 1);
+        }
       }
-      if (match < 0) match = fallback;
-      if (match < 0) return;
-      used.add(match);
-      act[i] = '+';
-      act[match] = '-';
-      c.pair = match;
-      msgs[match].pair = i;
-    });
+    };
+    index(model.items);
+    const repliesAfter = (k, p) => (replyPos.get(k) || []).filter((x) => x > p).length;
 
-    // Doğrusal doğrulama: Mermaid'in sayaçlarıyla çelişen çiftleri düşür
-    const idx = new Map(msgs.map((m, i) => [m, i]));
-    const count = new Map();
-    const inc = (id, d) => count.set(id, (count.get(id) || 0) + d);
-    for (const o of order) {
-      if (o.explicit) {
-        const p = o.explicit.participant;
-        if (o.explicit.action === 'activate') inc(p, 1);
-        else if ((count.get(p) || 0) > 0) inc(p, -1);
-        continue;
+    // 2) Simülasyon. Çerçeve: { p: aktif katılımcı, k: çağrı anahtarı | null (elle) }
+    const lin = new Map(); // Mermaid'in doğrusal sayacı
+    const linInc = (p, d) => lin.set(p, (lin.get(p) || 0) + d);
+    const ops = []; // { list, at: 'start' | 'end' | node(sonrasına), items }
+    const fix = (target) => {
+      // doğrusal sayacı hedef durumla eşitleyen satırlar
+      const want = new Map();
+      target.forEach((f) => want.set(f.p, (want.get(f.p) || 0) + 1));
+      const out = [];
+      new Set([...lin.keys(), ...want.keys()]).forEach((p) => {
+        let d = (want.get(p) || 0) - (lin.get(p) || 0);
+        for (; d > 0; d--) { out.push({ uid: uid(), kind: 'activation', action: 'activate', participant: p, auto: true }); linInc(p, 1); }
+        for (; d < 0; d++) { out.push({ uid: uid(), kind: 'activation', action: 'deactivate', participant: p, auto: true }); linInc(p, -1); }
+      });
+      return out;
+    };
+    const keepIfReplied = (frames, after) => frames.filter((f) => !f.k || repliesAfter(f.k, after) > 0);
+    const union = (states) => {
+      const out = [];
+      states.forEach((st) => st.forEach((f) => { if (!out.includes(f)) out.push(f); }));
+      return out;
+    };
+
+    const run = (items, st) => {
+      for (const it of [...items]) {
+        if (it.kind === 'message') {
+          const { from, to, arrow } = it;
+          it.act = '';
+          if (from === to) continue;
+          if (isCall(arrow)) {
+            const k = from + '>' + to;
+            const open = st.filter((f) => f.k === k).length;
+            if (repliesAfter(k, pos.get(it)) > open) { it.act = '+'; st.push({ p: to, k }); linInc(to, 1); }
+          } else if (isReply(arrow)) {
+            const k = to + '>' + from;
+            for (let j = st.length - 1; j >= 0; j--) {
+              if (st[j].k === k) { st.splice(j, 1); it.act = '-'; linInc(from, -1); break; }
+            }
+          }
+        } else if (it.kind === 'activation') {
+          if (it.action === 'activate') { st.push({ p: it.participant, k: null }); linInc(it.participant, 1); }
+          else {
+            for (let j = st.length - 1; j >= 0; j--) if (st[j].p === it.participant) { st.splice(j, 1); break; }
+            if ((lin.get(it.participant) || 0) > 0) linInc(it.participant, -1);
+          }
+        } else if (it.kind === 'block') {
+          runBlock(it, items, st);
+        }
       }
-      const i = idx.get(o);
-      if (act[i] === '+') inc(o.node.to, 1);
-      else if (act[i] === '-') {
-        if ((count.get(o.node.from) || 0) > 0) inc(o.node.from, -1);
-        else { act[i] = ''; if (o.pair >= 0) act[o.pair] = ''; }
+    };
+
+    const runBlock = (blk, list, st) => {
+      const end = endPos.get(blk);
+      const s0 = [...st];
+      const alternatives = blk.type === 'alt' || blk.type === 'critical' || blk.type === 'opt' || blk.type === 'break';
+      if (!alternatives) {
+        blk.branches.forEach((b) => run(b.items, st));
+        return;
       }
+      const ends = blk.branches.map((b, i) => {
+        const bs = [...s0];
+        if (i > 0) ops.push({ list: b.items, at: 'start', items: fix(s0) });
+        run(b.items, bs);
+        // Bu yolda bir daha kapanmayacak çerçeveleri kolun sonunda kapat
+        let keep = keepIfReplied(bs, end);
+        if (blk.type === 'break') keep = keep.filter((f) => s0.includes(f));
+        ops.push({ list: b.items, at: 'end', items: fix(keep) });
+        return keep;
+      });
+      // opt/break: bloğa hiç girilmeyen yol
+      let merged;
+      if (blk.type === 'break') merged = keepIfReplied(s0, end);
+      else merged = keepIfReplied(union(blk.type === 'opt' ? [s0, ...ends] : ends), end);
+      ops.push({ list, at: blk, items: fix(merged) });
+      st.length = 0;
+      st.push(...merged);
+    };
+
+    run(model.items, []);
+
+    // 3) Düzeltmeleri yerleştir
+    for (const op of ops) {
+      if (!op.items.length) continue;
+      if (op.at === 'start') op.list.unshift(...op.items);
+      else if (op.at === 'end') op.list.push(...op.items);
+      else op.list.splice(op.list.indexOf(op.at) + 1, 0, ...op.items);
     }
-
-    let changed = false;
-    msgs.forEach((m, i) => { if (before[i] !== act[i]) changed = true; m.node.act = act[i]; });
-    return changed;
+    return serialize(model) !== before;
   }
 
   const api = {

@@ -1397,7 +1397,8 @@
   function moveNodeBy(nodeUid, delta) {
     const f = M.findNode(S.model, nodeUid);
     if (!f || !f.node) return;
-    const j = f.index + delta;
+    let j = f.index + delta;
+    while (f.list[j] && f.list[j].auto) j += delta;
     if (j < 0 || j >= f.list.length) return;
     f.list.splice(f.index, 1);
     f.list.splice(j, 0, f.node);
@@ -1441,7 +1442,7 @@
     el.flow.innerHTML = '';
     el.flow.append(renderList(S.model.items, 'root', counter));
     let steps = 0;
-    M.walk(S.model.items, () => { steps++; });
+    M.walk(S.model.items, (it) => { if (!it.auto) steps++; });
     el.stepCount.textContent = steps;
     if (S.selected) setSelected(S.selected);
   }
@@ -1449,7 +1450,7 @@
   function renderList(items, listId, counter) {
     listReg.set(listId, items);
     const list = h('div', { class: 'step-list' + (listId === 'root' ? ' root' : ''), 'data-list': listId });
-    if (!items.length) {
+    if (!items.some((it) => !it.auto)) {
       if (listId === 'root') {
         list.append(h('div', { class: 'empty-list flow-empty' }, ico('blocks'), h('b', null, T('flow.empty')),
           h('span', null, T(S.model.participants.length >= 2 ? 'flow.emptyHintLink' : 'flow.emptyHintAdd'))));
@@ -1493,7 +1494,9 @@
     switch (it.kind) {
       case 'message': return renderMessage(it, counter);
       case 'note': return renderNote(it);
-      case 'activation': return renderActivation(it);
+      // Otomatik aktivasyonun ürettiği düzeltme satırları gizli tutulur; DOM'da
+      // yer almaları sürükle-bırak indekslerinin modelle hizalı kalmasını sağlar.
+      case 'activation': return it.auto ? h('div', { class: 'step auto-act', hidden: true, 'data-uid': it.uid }) : renderActivation(it);
       case 'block': return renderBlock(it, counter);
       default: return renderRaw(it);
     }
@@ -2165,6 +2168,8 @@
     if (!S.doc) return;
     S.doc.autoAct = el.autoAct.checked;
     persistDocs();
+    // Kapatılınca otomatik düzeltme satırları sıradan (elle düzenlenebilir) aktivasyonlara dönüşür
+    if (!el.autoAct.checked) M.walk(S.model.items, (it) => { delete it.auto; });
     // Açılınca hesapla; kapatılınca mevcut işaretler kalır ve elle düzenlenebilir olur
     commit();
     flushHistory();

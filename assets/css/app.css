@@ -448,6 +448,7 @@ button { cursor: pointer; }
 .step-note { --c: var(--c-note); }
 .step-activation { --c: var(--c-activation); }
 .step-raw { --c: var(--c-raw); }
+.step.auto-act { display: none; }
 
 /* Blocks */
 .step.block {
