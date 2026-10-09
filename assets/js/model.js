@@ -72,12 +72,17 @@
   // "%% @auto" ardından gelen activate/deactivate satırları otomatik aktivasyonun ürettiği düzeltmelerdir
   const AUTO_RE = /^%%\s*@auto\s*$/i;
 
+  // Satır sonları modelde "\n", Mermaid'de <br/> olarak tutulur (<br>, <br/>, <br /> okunur)
+  const BR_RE = /<br\s*\/?>/gi;
+  const encodeBr = (s) => String(s == null ? '' : s).replace(/\r?\n/g, '<br/>');
+  const decodeBr = (s) => String(s == null ? '' : s).replace(BR_RE, '\n');
+
   // Mesaj metninde ; ve # Mermaid için özel karakterlerdir → entity olarak saklanır
   function encodeText(s) {
-    return String(s == null ? '' : s).replace(/[#;]/g, (c) => (c === '#' ? '#35;' : '#59;'));
+    return encodeBr(String(s == null ? '' : s).replace(/[#;]/g, (c) => (c === '#' ? '#35;' : '#59;')));
   }
   function decodeText(s) {
-    return String(s == null ? '' : s).replace(/#35;/g, '#').replace(/#59;/g, ';');
+    return decodeBr(String(s == null ? '' : s).replace(/#35;/g, '#').replace(/#59;/g, ';'));
   }
 
   const NAMED_COLORS = new Set(('aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato transparent turquoise violet wheat white whitesmoke yellow yellowgreen').split(' '));
@@ -237,7 +242,7 @@
         const tm = m[3].match(/"?type"?\s*:\s*"?(\w+)"?/i);
         if (tm && PARTICIPANT_TYPES.some((t) => t.v === tm[1].toLowerCase())) type = tm[1].toLowerCase();
       }
-      const label = m[4] ? m[4].trim() : id;
+      const label = m[4] ? decodeBr(m[4].trim()) : id;
       let p = pMap.get(id);
       if (p) {
         // Daha önce örtük eklenmişse güncelle
@@ -262,7 +267,7 @@
     let s = p.type === 'actor' ? 'actor ' : 'participant ';
     s += p.id;
     if (p.type !== 'actor' && p.type !== 'participant') s += '@{ "type": "' + p.type + '" }';
-    if (p.label && p.label !== p.id) s += ' as ' + p.label;
+    if (p.label && p.label !== p.id) s += ' as ' + encodeBr(p.label);
     return s;
   }
 
@@ -564,7 +569,7 @@
 
   const api = {
     uid, parse, serialize, previewSafe, inferActivations, hasManualActivation, emptyModel, walk, findNode, cloneWithNewUids, slugify,
-    encodeText, decodeText, parseBoxHeader,
+    encodeText, decodeText, encodeBr, decodeBr, parseBoxHeader,
     PARTICIPANT_TYPES, ARROWS, ALL_ARROWS, BLOCK_TYPES, NOTE_POSITIONS,
   };
 

@@ -1113,7 +1113,7 @@
     pop.innerHTML = '';
     const touch = () => { p.implicit = false; };
 
-    const labelIn = h('input', { class: 'input', value: p.label, placeholder: T('pe.labelPh') });
+    const labelIn = multiline(h('textarea', { class: 'input', rows: 1, value: p.label, placeholder: T('pe.labelPh') }));
     const idIn = h('input', { class: 'input', value: p.id, spellcheck: 'false', style: 'font-family:var(--mono)' });
     const idHint = h('small', null, T('pe.idHint'));
 
@@ -1472,17 +1472,57 @@
       h('button', { class: 'icon-btn', title: T('duplicateKey'), onclick: () => duplicateNode(it.uid) }, ico('copy')),
       h('button', { class: 'icon-btn del', title: T('deleteKey'), onclick: () => deleteNode(it.uid) }, ico('trash')));
   }
-  function textInput(value, placeholder, onInput, cls) {
-    const inp = h('input', { class: 'text-input' + (cls ? ' ' + cls : ''), value: value || '', placeholder, spellcheck: 'false' });
-    inp.addEventListener('input', () => { onInput(inp.value); commit({ rerender: false }); });
-    inp.addEventListener('blur', flushHistory);
-    return inp;
+  /**
+   * Metin alanı: "mono" olanlar tek satırlık input, diğerleri içeriğe göre büyüyen
+   * textarea. Satır sonları Mermaid'e <br/> olarak yazılır. Yeni satır: Alt+Enter
+   * (her yerde) ve Shift+Enter (opts.shiftNewline !== false iken; mesajda Shift+Enter
+   * yanıt eklediği için kapalı). Düz Enter satır eklemez; alanın kendi davranışı çalışır.
+   */
+  function textInput(value, placeholder, onInput, cls, opts) {
+    if (cls === 'mono') {
+      const inp = h('input', { class: 'text-input mono', value: value || '', placeholder, spellcheck: 'false' });
+      inp.addEventListener('input', () => { onInput(inp.value); commit({ rerender: false }); });
+      inp.addEventListener('blur', flushHistory);
+      return inp;
+    }
+    const ta = h('textarea', { class: 'text-input' + (cls ? ' ' + cls : ''), rows: 1, value: value || '', placeholder, spellcheck: 'false' });
+    multiline(ta, opts);
+    ta.addEventListener('input', () => { onInput(ta.value); commit({ rerender: false }); });
+    ta.addEventListener('blur', flushHistory);
+    return ta;
   }
+  function fitTextarea(ta) {
+    if (!ta.isConnected) return;
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + (ta.offsetHeight - ta.clientHeight) + 'px';
+  }
+  function multiline(ta, opts) {
+    const shiftNewline = !opts || opts.shiftNewline !== false;
+    ta.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      if (e.altKey || (e.shiftKey && shiftNewline)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        ta.setRangeText('\n', ta.selectionStart, ta.selectionEnd, 'end');
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      } else {
+        e.preventDefault(); // tek satırlık input gibi davran; alanın kendi Enter işleyicisi çalışır
+      }
+    });
+    ta.addEventListener('input', () => fitTextarea(ta));
+    requestAnimationFrame(() => fitTextarea(ta));
+    return ta;
+  }
+  // Panel genişliği değişince satır kaymaları değişir → yükseklikleri yeniden hesapla
+  const refitAll = debounce(() => $$('textarea.text-input, textarea.input').forEach(fitTextarea), 60);
+  if (window.ResizeObserver) new ResizeObserver(refitAll).observe(el.flow);
+  /** Tek satırlık yerlerde (select, rozet) gösterim için */
+  const oneLine = (s) => String(s == null ? '' : s).replace(/\s*\n\s*/g, ' ');
   function pSelect(value, onChange, allowEmpty) {
     const sel = h('select', { class: 'pselect', title: T('participant') });
     if (allowEmpty) sel.append(h('option', { value: '' }, '—'));
     const ids = S.model.participants.map((p) => p.id);
-    S.model.participants.forEach((p) => sel.append(h('option', { value: p.id }, p.label || p.id)));
+    S.model.participants.forEach((p) => sel.append(h('option', { value: p.id }, oneLine(p.label || p.id))));
     if (value && !ids.includes(value)) sel.append(h('option', { value }, value));
     sel.value = value || '';
     sel.style.setProperty('--pc', value ? colorOf(value) : 'transparent');
@@ -1521,7 +1561,7 @@
       // Otomatik mod: hesaplanan başlangıç / bitişi salt okunur rozet olarak göster
       if (it.act) {
         const who = participantById(it.act === '+' ? it.to : it.from);
-        const name = who ? who.label || who.id : (it.act === '+' ? it.to : it.from);
+        const name = oneLine(who ? who.label || who.id : (it.act === '+' ? it.to : it.from));
         actBtn = h('span', { class: 'act-badge ' + (it.act === '+' ? 'start' : 'end'), title: T(it.act === '+' ? 'act.autoStart' : 'act.autoEnd', { name }) },
           ico('activate'), h('span', { class: 'act-name' }, (it.act === '+' ? '▶ ' : '■ ') + name));
       }
@@ -1531,7 +1571,7 @@
       actBtn.addEventListener('click', () => { it.act = it.act === '' ? '+' : it.act === '+' ? '-' : ''; commit(); flushHistory(); });
     }
 
-    const txt = textInput(it.text, T('ph.message'), (v) => { it.text = v; });
+    const txt = textInput(it.text, T('ph.message'), (v) => { it.text = v; }, null, { shiftNewline: false });
     txt.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.isComposing) {
         e.preventDefault();
@@ -2054,6 +2094,7 @@
             [kb(mod + '+Z') + ' / ' + kb(mod + '+Shift+Z'), T('help.k.undo')],
             [kb('Enter'), T('help.k.enter')],
             [kb('Shift+Enter'), T('help.k.shiftEnter')],
+            [kb((isMac ? '⌥' : 'Alt') + '+Enter'), T('help.k.newline')],
             [kb(mod + '+D'), T('help.k.dup')],
             [kb('Alt+↑') + ' ' + kb('Alt+↓'), T('help.k.move')],
             [kb('Del'), T('help.k.del')],

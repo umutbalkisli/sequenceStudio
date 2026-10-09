@@ -314,7 +314,7 @@ button { cursor: pointer; }
 .pc-icon { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; flex: none; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
 .pc-icon .ic { width: 20px; height: 20px; }
 .pc-text { min-width: 0; }
-.pc-label { font-weight: 650; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-label { font-weight: 650; font-size: 13px; white-space: pre; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
 .pc-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); }
 .pc-handle {
   position: absolute; right: 7px; top: 50%; width: 18px; height: 18px; margin-top: -9px; border-radius: 50%;
@@ -410,6 +410,13 @@ button { cursor: pointer; }
 .text-input:hover { background: var(--panel-2); }
 .text-input:focus { outline: none; background: var(--panel); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .text-input.mono { font-family: var(--mono); font-size: 12.5px; }
+textarea.text-input, textarea.input {
+  display: block; resize: none; overflow: hidden; font: inherit; color: inherit; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+textarea.text-input { height: 30px; min-height: 30px; padding: 4px 8px; align-self: center; }
+textarea.input { height: 34px; min-height: 34px; padding: 6px 10px; }
+.block-head textarea.text-input { font-weight: 600; }
+.branch-head textarea.text-input { min-height: 28px; padding: 3px 8px; }
 
 .act-btn {
   height: 26px; min-width: 26px; padding: 0 6px; border-radius: 7px; border: 1px dashed var(--border-strong); background: transparent; color: var(--muted);
