@@ -476,6 +476,7 @@
   }
 
   function renderDocList(renameId) {
+    hideNameTip();
     el.docList.innerHTML = '';
     // Silinmiş klasörlere işaret eden belgeleri köke al
     S.docs.forEach((d) => { if (d.folder && !folderById(d.folder)) delete d.folder; });
@@ -487,6 +488,37 @@
     if (S.folders.length && !root.length) rootBox.append(h('div', { class: 'folder-empty' }, T('folder.rootEmpty')));
     el.docList.append(rootBox);
   }
+  // Kesilmiş (2 satıra sığmayan) diyagram/klasör adlarının tamamını hover'da gösterir
+  const nameTip = h('div', { class: 'name-tip', role: 'tooltip', hidden: true });
+  document.body.append(nameTip);
+  let nameTipTimer = null;
+  function hideNameTip() { clearTimeout(nameTipTimer); nameTip.hidden = true; }
+  el.docList.addEventListener('mouseover', (e) => {
+    const n = e.target.closest('.di-name, .fh-name');
+    if (!n || n.contains(e.relatedTarget)) return;
+    hideNameTip();
+    if (n.scrollHeight <= n.clientHeight + 1) return; // kesilmemiş
+    nameTipTimer = setTimeout(() => {
+      if (!n.isConnected || !n.matches(':hover')) return;
+      nameTip.textContent = n.textContent;
+      nameTip.hidden = false;
+      const r = n.getBoundingClientRect();
+      const w = Math.min(Math.max(r.width, 260), window.innerWidth - 16);
+      nameTip.style.width = w + 'px';
+      const left = clamp(r.left - 10, 8, window.innerWidth - w - 8);
+      const below = r.bottom + 6;
+      const top = below + nameTip.offsetHeight > window.innerHeight - 8 ? r.top - nameTip.offsetHeight - 6 : below;
+      nameTip.style.left = left + 'px';
+      nameTip.style.top = Math.max(8, top) + 'px';
+    }, 300);
+  });
+  el.docList.addEventListener('mouseout', (e) => {
+    const n = e.target.closest('.di-name, .fh-name');
+    if (n && !n.contains(e.relatedTarget)) hideNameTip();
+  });
+  el.docList.addEventListener('scroll', hideNameTip, { passive: true });
+  el.docList.addEventListener('dragstart', hideNameTip);
+
   function openDrawer() {
     // Açık belgenin klasörünü göster
     const f = S.doc && folderById(S.doc.folder);
@@ -495,7 +527,7 @@
     el.drawer.classList.add('open');
     el.scrim.classList.add('show');
   }
-  function closeDrawer() { closeMoveMenu(); el.drawer.classList.remove('open'); el.scrim.classList.remove('show'); }
+  function closeDrawer() { hideNameTip(); closeMoveMenu(); el.drawer.classList.remove('open'); el.scrim.classList.remove('show'); }
 
   // ---------------------------------------------------------------------------
   // Önizleme (render + pan/zoom)
