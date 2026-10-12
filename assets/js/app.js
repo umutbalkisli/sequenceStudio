@@ -1348,8 +1348,8 @@
       }
       case 'reply': {
         if (!P.length) return null;
-        if (sel) return { uid: M.uid(), kind: 'message', from: sel.to, to: sel.from, arrow: '-->>', act: '', text: '' };
-        return { uid: M.uid(), kind: 'message', from: b, to: a, arrow: '-->>', act: '', text: '' };
+        if (sel) return { uid: M.uid(), kind: 'message', from: sel.to, to: sel.from, arrow: '-->>', act: '', text: REPLY_TEXT };
+        return { uid: M.uid(), kind: 'message', from: b, to: a, arrow: '-->>', act: '', text: REPLY_TEXT };
       }
       case 'note':
         if (!P.length) return null;
@@ -1387,6 +1387,9 @@
     const to = (P[i + 1] || P[i - 1] || P[i]).id;
     insertNode({ uid: M.uid(), kind: 'message', from: id, to, arrow: '->>', act: '', text: '' });
   }
+
+  /** Yeni yanıt mesajlarının varsayılan metni (alan odaklanınca seçili gelir, yazınca değişir) */
+  const REPLY_TEXT = '✓';
 
   function insertNode(node, list, index) {
     if (!list) { const ip = insertionPoint(); list = ip.list; index = ip.index; }
@@ -1609,7 +1612,7 @@
         e.preventDefault();
         S.selected = it.uid;
         const reply = e.shiftKey
-          ? { uid: M.uid(), kind: 'message', from: it.to, to: it.from, arrow: it.arrow.startsWith('--') ? '->>' : '-->>', act: '', text: '' }
+          ? { uid: M.uid(), kind: 'message', from: it.to, to: it.from, arrow: it.arrow.startsWith('--') ? '->>' : '-->>', act: '', text: it.arrow.startsWith('--') ? '' : REPLY_TEXT }
           : { uid: M.uid(), kind: 'message', from: it.from, to: it.to, arrow: it.arrow, act: '', text: '' };
         insertNode(reply);
       }
