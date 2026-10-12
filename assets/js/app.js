@@ -186,7 +186,7 @@
     text.actor > tspan { font-weight: 600; }
     .messageText { font-weight: 500; }
     .labelText, .labelText > tspan { font-weight: 700; letter-spacing: .03em; }
-    .loopText, .loopText > tspan { font-style: italic; }
+    .loopText, .loopText > tspan, .sectionTitle, .sectionTitle > tspan { font-style: italic; }
   `;
 
   const mmThemeName = () => (S.settings.mmTheme === 'auto' ? (appTheme() === 'dark' ? 'studio-dark' : 'studio-light') : S.settings.mmTheme);
