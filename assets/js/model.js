@@ -71,6 +71,8 @@
   const COLOR_RE = /^%%\s*@color\s+(#[0-9a-f]{6})\s*$/i;
   // "%% @auto" ardından gelen activate/deactivate satırları otomatik aktivasyonun ürettiği düzeltmelerdir
   const AUTO_RE = /^%%\s*@auto\s*$/i;
+  // Katılımcının rolü (Studio'nun rol kütüphanesindeki kimlik); renk satırıyla birlikte katılımcının üstünde durur
+  const ROLE_RE = /^%%\s*@role\s+([A-Za-z0-9_-]+)\s*$/;
 
   // Satır sonları modelde "\n", Mermaid'de <br/> olarak tutulur (<br>, <br/>, <br /> okunur)
   const BR_RE = /<br\s*\/?>/gi;
@@ -132,6 +134,7 @@
     let headerSeen = false;
     let messageSeen = false;
     let pendingColor = null;
+    let pendingRole = null;
     let autoNext = false;
 
     for (; i < lines.length; i++) {
@@ -149,13 +152,17 @@
       if (AUTO_RE.test(line)) { autoNext = true; continue; }
 
       let m;
-      if ((m = line.match(COLOR_RE))) {
+      const colorM = line.match(COLOR_RE);
+      const roleM = line.match(ROLE_RE);
+      if (colorM || roleM) {
+        // Hedef: boş ve diğer yönerge satırlarından sonraki ilk satır
         let j = i + 1;
-        while (j < lines.length && !lines[j].trim()) j++;
+        while (j < lines.length && (!lines[j].trim() || COLOR_RE.test(lines[j].trim()) || ROLE_RE.test(lines[j].trim()))) j++;
         const nextLine = j < lines.length ? lines[j].trim() : '';
         const next = nextLine.match(BLOCK_RE);
-        // Blok (rect hariç) ya da katılımcı satırının rengi
-        if ((next && next[1].toLowerCase() !== 'rect' && !box) || PART_RE.test(nextLine)) { pendingColor = m[1].toLowerCase(); continue; }
+        const isPart = PART_RE.test(nextLine);
+        if (colorM && (isPart || (next && next[1].toLowerCase() !== 'rect' && !box))) { pendingColor = colorM[1].toLowerCase(); continue; }
+        if (roleM && isPart) { pendingRole = roleM[1]; continue; }
       }
       if (line.startsWith('%%')) { push({ uid: uid(), kind: 'raw', text: line }); continue; }
 
@@ -238,7 +245,8 @@
 
     function addParticipant(m, boxId) {
       const color = pendingColor;
-      pendingColor = null;
+      const role = pendingRole;
+      pendingColor = pendingRole = null;
       const keyword = m[1].toLowerCase();
       const id = m[2].trim();
       let type = keyword === 'actor' ? 'actor' : 'participant';
@@ -257,6 +265,7 @@
         model.participants.push(p);
       }
       if (color) p.color = color;
+      if (role) p.role = role;
     }
 
     // Kullanılmayan boş box'ları temizle
@@ -267,6 +276,13 @@
   // ---- Serialize ----------------------------------------------------------
 
   const IND = '    ';
+
+  function participantDirectives(p) {
+    const out = [];
+    if (p.role) out.push('%% @role ' + p.role);
+    if (p.color) out.push('%% @color ' + p.color);
+    return out;
+  }
 
   function participantLine(p) {
     let s = p.type === 'actor' ? 'actor ' : 'participant ';
@@ -292,13 +308,13 @@
       if (b) {
         out.push(IND + ('box ' + [b.color, b.label].filter(Boolean).join(' ')).trim());
         while (k < parts.length && parts[k].boxId === p.boxId) {
-          if (parts[k].color) out.push(IND + IND + '%% @color ' + parts[k].color);
+          out.push(...participantDirectives(parts[k]).map((l) => IND + IND + l));
           out.push(IND + IND + participantLine(parts[k]));
           k++;
         }
         out.push(IND + 'end');
       } else {
-        if (p.color) out.push(IND + '%% @color ' + p.color);
+        out.push(...participantDirectives(p).map((l) => IND + l));
         out.push(IND + participantLine(p));
         k++;
       }

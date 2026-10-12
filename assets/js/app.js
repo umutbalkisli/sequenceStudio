@@ -78,7 +78,7 @@
   // ---------------------------------------------------------------------------
   // Depolama (yalnızca localStorage)
   // ---------------------------------------------------------------------------
-  const LS = { docs: 'seqstudio.docs', folders: 'seqstudio.folders', cur: 'seqstudio.current', set: 'seqstudio.settings' };
+  const LS = { docs: 'seqstudio.docs', folders: 'seqstudio.folders', roles: 'seqstudio.roles', cur: 'seqstudio.current', set: 'seqstudio.settings' };
   const store = {
     get(k, def) { try { const v = localStorage.getItem(k); return v == null ? def : JSON.parse(v); } catch (e) { return def; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
@@ -127,7 +127,7 @@
     undo: $('#btnUndo'), redo: $('#btnRedo'),
     viewSeg: $('#viewSeg'), viewBuilder: $('#viewBuilder'), viewCode: $('#viewCode'),
     autonum: $('#optAutonumber'), autoAct: $('#optAutoAct'), title: $('#diagramTitle'),
-    palP: $('#palParticipants'), palS: $('#palSteps'),
+    palP: $('#palParticipants'), palS: $('#palSteps'), palR: $('#palRoles'),
     participants: $('#participants'), flow: $('#flow'), bscroll: $('#builderScroll'),
     partCount: $('#partCount'), stepCount: $('#stepCount'),
     code: $('#code'), codeHl: $('#codeHl'), gutter: $('#gutter'), codeStatus: $('#codeStatus'),
@@ -967,6 +967,15 @@
   function renderPalette() {
     el.palP.innerHTML = '';
     el.palS.innerHTML = '';
+    el.palR.innerHTML = '';
+    (S.roles || []).forEach((r) => {
+      const chip = h('div', { class: 'chip role-chip', draggable: 'true', title: r.name + ' — ' + T('pal.clickOrDrag'), style: `--c:${r.color}` }, ico('t-' + r.type), r.name);
+      chip.addEventListener('click', () => addParticipant(r.type, null, r.id));
+      chip.addEventListener('dragstart', (e) => startDrag(e, { kind: 'newPart', type: r.type, role: r.id }));
+      chip.addEventListener('dragend', endDrag);
+      el.palR.append(chip);
+    });
+    el.palR.append(h('button', { class: 'chip chip-edit', title: T('role.manage'), onclick: openRoles }, ico('edit'), (S.roles || []).length ? null : T('role.manageShort')));
     M.PARTICIPANT_TYPES.forEach((t, i) => {
       const chip = h('div', { class: 'chip', draggable: 'true', title: T('type.' + t.v) + ' — ' + T('pal.clickOrDrag'), style: `--c:${PCOLORS[i % PCOLORS.length]}` }, ico('t-' + t.v), t.label);
       chip.addEventListener('click', () => addParticipant(t.v));
@@ -993,11 +1002,91 @@
     return id;
   }
 
-  function addParticipant(type, index) {
-    const label = T('newp.' + type);
-    const n = S.model.participants.length + 1;
-    const lbl = S.model.participants.some((p) => p.label === label) ? label + ' ' + n : label;
-    const p = { uid: M.uid(), id: uniqueId(lbl), label: lbl, type, boxId: null, implicit: false, autoId: true };
+  // ---------------------------------------------------------------------------
+  // Katılımcı rolleri: ad + şekil (tip) + renk + ön/son ek. Kütüphane bu tarayıcıda
+  // global tutulur; diyagram koduna "%% @role id" ile birlikte çözülmüş tip ve renk de
+  // yazılır, böylece paylaşılan diyagram kütüphane olmadan da aynı görünür.
+  // Tip ya da renk elle değiştirilirse katılımcının rol bağlantısı kopar.
+  // ---------------------------------------------------------------------------
+  const PRESET_ROLES = [
+    { id: 'user', tr: 'Kullanıcı', en: 'User', type: 'actor', color: '#6c7cff', prefix: '', suffix: '' },
+    { id: 'client', tr: 'İstemci uygulama', en: 'Client app', type: 'boundary', color: '#20b8a6', prefix: '', suffix: ' App' },
+    { id: 'gateway', tr: 'API Gateway', en: 'API Gateway', type: 'collections', color: '#f0a020', prefix: '', suffix: ' Gateway' },
+    { id: 'service', tr: 'Servis', en: 'Service', type: 'participant', color: '#2fbf7f', prefix: '', suffix: ' Service' },
+    { id: 'external', tr: 'Dış sistem', en: 'External system', type: 'boundary', color: '#3aa0ff', prefix: '', suffix: '' },
+    { id: 'database', tr: 'Veritabanı', en: 'Database', type: 'database', color: '#f97a3c', prefix: '', suffix: ' DB' },
+    { id: 'queue', tr: 'Kuyruk', en: 'Message queue', type: 'queue', color: '#9b6bff', prefix: '', suffix: ' Queue' },
+  ];
+  const presetRole = (r) => ({ id: r.id, name: r[I18N.getLang()] || r.en, type: r.type, color: r.color, prefix: r.prefix, suffix: r.suffix });
+  S.roles = store.get(LS.roles, null);
+  const saveRoles = () => store.set(LS.roles, S.roles);
+  const roleById = (id) => id && (S.roles || []).find((r) => r.id === id);
+  /** Ön/son eki ayıklanmış ad (rolün o anki tanımına göre) */
+  function stripAffixes(label, r) {
+    let l = String(label || '');
+    if (r && r.prefix && l.startsWith(r.prefix)) l = l.slice(r.prefix.length);
+    if (r && r.suffix && l.endsWith(r.suffix) && l.length > r.suffix.length) l = l.slice(0, -r.suffix.length);
+    return l;
+  }
+  const composeLabel = (r, base) => (r ? (r.prefix || '') + base + (r.suffix || '') : base);
+  const baseName = (p) => stripAffixes(p.label, roleById(p.role));
+
+  /** Rolü katılımcıya uygular; adın çekirdeği korunur, ekler yenilenir. */
+  function applyRole(p, r) {
+    const base = baseName(p);
+    p.role = r.id;
+    p.type = r.type;
+    p.color = r.color;
+    p.label = composeLabel(r, base);
+    p.implicit = false;
+    if (p.autoId) {
+      const nid = uniqueId(p.label, p.uid);
+      renameRefs(p.id, nid);
+      p.id = nid;
+    }
+  }
+
+  /** Bir rolün tanımı değişti/silindi: bu tarayıcıdaki tüm diyagramlarda katılımcıları güncelle. */
+  function updateRoleEverywhere(old, cur) {
+    const transform = (model) => {
+      let changed = false;
+      model.participants.forEach((p) => {
+        if (p.role !== old.id) return;
+        changed = true;
+        if (!cur) { delete p.role; return; }
+        const base = stripAffixes(p.label, old);
+        p.type = cur.type;
+        p.color = cur.color;
+        p.label = composeLabel(cur, base);
+      });
+      return changed;
+    };
+    const marker = new RegExp('^\\s*%%\\s*@role\\s+' + old.id + '\\s*$', 'm');
+    S.docs.forEach((d) => {
+      if (S.doc && d.id === S.doc.id) return;
+      if (!marker.test(d.code)) return;
+      const m = M.parse(d.code);
+      if (transform(m)) d.code = M.serialize(m);
+    });
+    persistDocs();
+    if (transform(S.model)) commit();
+  }
+  /** Rolü kullanan diyagram sayısı */
+  function roleUsage(id) {
+    const marker = new RegExp('^\\s*%%\\s*@role\\s+' + id + '\\s*$', 'm');
+    return S.docs.filter((d) => marker.test(S.doc && d.id === S.doc.id ? S.code : d.code)).length;
+  }
+
+  function addParticipant(type, index, roleId) {
+    const r = roleById(roleId);
+    // Ekli rollerde çekirdek "Yeni" olur (Yeni Service → yazınca Order Service); eksizse rolün adı
+    const core = r ? (r.prefix || r.suffix ? T('role.newBase') : r.name) : T('newp.' + type);
+    const taken = (b) => S.model.participants.some((p) => p.label === composeLabel(r, b));
+    let base = core, n = 2;
+    while (taken(base)) base = core + ' ' + n++;
+    const lbl = composeLabel(r, base);
+    const p = { uid: M.uid(), id: uniqueId(lbl), label: lbl, type: r ? r.type : type, boxId: null, implicit: false, autoId: true };
+    if (r) { p.role = r.id; p.color = r.color; }
     S.model.participants.forEach((q) => { q.implicit = false; });
     if (index == null || index > S.model.participants.length) S.model.participants.push(p);
     else S.model.participants.splice(index, 0, p);
@@ -1012,7 +1101,7 @@
     box.innerHTML = '';
     const boxes = new Map(S.model.boxes.map((b) => [b.id, b]));
     S.model.participants.forEach((p, i) => {
-      const c = PCOLORS[i % PCOLORS.length];
+      const c = p.color || PCOLORS[i % PCOLORS.length];
       const bx = p.boxId && boxes.get(p.boxId);
       const card = h('div', {
         class: 'pcard' + (S.selectedP === p.uid ? ' selected' : ''), draggable: 'true', 'data-uid': p.uid,
@@ -1067,7 +1156,7 @@
     const { i } = pDropIndex(e);
     const d = S.drag;
     clearPMarker();
-    if (d.kind === 'newPart') { addParticipant(d.type, i); return; }
+    if (d.kind === 'newPart') { addParticipant(d.type, i, d.role); return; }
     if (d.kind === 'part') {
       const arr = S.model.participants;
       const from = arr.findIndex((p) => p.uid === d.uid);
@@ -1150,15 +1239,29 @@
     pop.innerHTML = '';
     const touch = () => { p.implicit = false; };
 
-    const labelIn = multiline(h('textarea', { class: 'input', rows: 1, value: p.label, placeholder: T('pe.labelPh') }));
+    const role = roleById(p.role);
+    // Rol yeniden çizimi: kart yeniden oluştuğu için güncel kartı çapa al
+    const reopen = () => {
+      const card = el.participants.querySelector(`[data-uid="${p.uid}"]`);
+      openParticipantEditor(p, card || anchor);
+    };
+    // Ad alanı: rolün ön/son eki sabit etiket olarak görünür, yalnızca çekirdek ad düzenlenir
+    const labelIn = multiline(h('textarea', { class: 'input', rows: 1, value: role ? baseName(p) : p.label, placeholder: T('pe.labelPh') }));
+    const labelField = role && (role.prefix || role.suffix)
+      ? h('div', { class: 'affix-input' },
+        role.prefix ? h('span', { class: 'affix', title: T('role.prefix') }, role.prefix) : null,
+        labelIn,
+        role.suffix ? h('span', { class: 'affix', title: T('role.suffix') }, role.suffix) : null)
+      : labelIn;
     const idIn = h('input', { class: 'input', value: p.id, spellcheck: 'false', style: 'font-family:var(--mono)' });
     const idHint = h('small', null, T('pe.idHint'));
 
     labelIn.addEventListener('input', () => {
       touch();
-      p.label = labelIn.value.trim() || p.id;
+      const r = roleById(p.role);
+      p.label = labelIn.value.trim() ? composeLabel(r, labelIn.value.trim()) : p.id;
       if (p.autoId) {
-        const nid = uniqueId(labelIn.value || 'P', p.uid);
+        const nid = uniqueId(p.label || 'P', p.uid);
         renameRefs(p.id, nid);
         p.id = nid;
         idIn.value = nid;
@@ -1187,9 +1290,12 @@
       const b = h('button', { class: 'type-opt' + (p.type === t.v ? ' active' : ''), title: T('type.' + t.v) }, ico('t-' + t.v), t.label);
       b.addEventListener('click', () => {
         touch(); p.type = t.v;
+        const hadRole = !!p.role;
+        delete p.role; // elle değişiklik → rol bağlantısı kopar
         $$('.type-opt', typeGrid).forEach((x) => x.classList.remove('active'));
         b.classList.add('active');
         commit();
+        if (hadRole) reopen();
       });
       typeGrid.append(b);
     });
@@ -1241,9 +1347,11 @@
       const setColor = (c) => {
         touch();
         if (c) p.color = c; else delete p.color;
+        const hadRole = !!p.role;
+        delete p.role; // elle değişiklik → rol bağlantısı kopar
         commit();
         flushHistory();
-        fillColors();
+        if (hadRole) reopen(); else fillColors();
       };
       const cur = colorOf(p.id);
       const custom = h('input', { type: 'color', value: cur, title: T('block.colorCustom') });
@@ -1257,12 +1365,31 @@
     };
     fillColors();
 
+    // Rol seçimi
+    const roleChips = h('div', { class: 'role-pick' },
+      h('button', { class: 'rp-chip' + (!p.role ? ' active' : ''), onclick: () => {
+        if (!p.role) return;
+        delete p.role; // görünüm ve ad olduğu gibi kalır
+        commit(); flushHistory(); reopen();
+      } }, T('role.none')),
+      (S.roles || []).map((r) => h('button', {
+        class: 'rp-chip' + (p.role === r.id ? ' active' : ''), style: `--c:${r.color}`, title: r.name,
+        onclick: () => { if (p.role === r.id) return; applyRole(p, r); commit(); flushHistory(); reopen(); },
+      }, ico('t-' + r.type), r.name)),
+      p.role && !role ? h('span', { class: 'rp-chip active unknown', title: T('role.unknown') }, '@' + p.role) : null,
+      h('button', { class: 'rp-edit', onclick: () => { closePopover(); openRoles(); } }, T('role.manageEllipsis')));
+    const custom = h('details', { class: 'pe-custom', open: p.role ? null : true },
+      h('summary', null, T('pe.customize')),
+      p.role ? h('small', { class: 'pe-custom-hint' }, T('role.detachHint')) : null,
+      h('div', { class: 'field' }, h('label', null, T('pe.type')), typeGrid),
+      h('div', { class: 'field' }, h('label', null, T('pe.color')), colorField));
+
     pop.append(
       h('div', { class: 'pop-title' }, T('pe.title'), h('button', { class: 'icon-btn sm', onclick: closePopover }, ico('x'))),
-      h('div', { class: 'field' }, h('label', null, T('pe.label')), labelIn),
+      h('div', { class: 'field' }, h('label', null, T('pe.label')), labelField),
+      h('div', { class: 'field' }, h('label', null, T('pe.role')), roleChips),
       h('div', { class: 'field' }, h('label', null, T('pe.id')), idIn, idHint),
-      h('div', { class: 'field' }, h('label', null, T('pe.type')), typeGrid),
-      h('div', { class: 'field' }, h('label', null, T('pe.color')), colorField),
+      custom,
       h('div', { class: 'field' }, h('label', null, T('pe.box')), boxSel, boxRow),
       h('div', { class: 'pop-actions' },
         h('button', { class: 'btn danger sm', onclick: () => { if (deleteParticipant(p)) closePopover(); } }, ico('trash'), T('delete')),
@@ -2124,6 +2251,124 @@
   }
 
   // --- Şablonlar ---
+  // --- Katılımcı rolleri ---
+  function openRoles() {
+    // Değişiklikler gecikmeli olarak tüm diyagramlara yayılır; eski tanım "snap" içinde tutulur
+    const snap = new Map((S.roles || []).map((r) => [r.id, { ...r }]));
+    const pending = new Set();
+    const flush = debounce(() => {
+      pending.forEach((id) => {
+        const old = snap.get(id);
+        const cur = roleById(id);
+        if (old) updateRoleEverywhere(old, cur || null);
+        if (cur) snap.set(id, { ...cur }); else snap.delete(id);
+      });
+      pending.clear();
+      renderPalette();
+    }, 300);
+    const changed = (r) => { saveRoles(); pending.add(r.id); flush(); };
+
+    const list = h('div', { class: 'role-list' });
+    const renderRows = () => {
+      list.innerHTML = '';
+      list.append(h('div', { class: 'role-row role-head' },
+        h('span'), h('span', null, T('role.name')), h('span', null, T('pe.type')), h('span', null, T('pe.color')),
+        h('span', null, T('role.prefix')), h('span', null, T('role.suffix')), h('span', null, T('role.usage')), h('span')));
+      S.roles.forEach((r) => {
+        const icon = h('span', { class: 'role-icon', style: `--c:${r.color}` }, ico('t-' + r.type));
+        const example = h('small', { class: 'role-example' });
+        const refresh = () => {
+          icon.style.setProperty('--c', r.color);
+          icon.innerHTML = '';
+          icon.append(ico('t-' + r.type));
+          example.textContent = T('role.example', { name: composeLabel(r, T('role.exampleBase')) });
+        };
+        const name = h('input', { class: 'input', value: r.name, placeholder: T('role.name') });
+        name.addEventListener('input', () => { r.name = name.value.trim() || r.id; saveRoles(); renderPalette(); });
+        const type = h('select', { class: 'select' }, M.PARTICIPANT_TYPES.map((t) => h('option', { value: t.v }, t.label)));
+        type.value = r.type;
+        type.addEventListener('change', () => { r.type = type.value; refresh(); changed(r); });
+        const color = h('input', { type: 'color', class: 'role-color', value: r.color, title: T('pe.color') });
+        color.addEventListener('input', () => { r.color = color.value.toLowerCase(); refresh(); changed(r); });
+        const affix = (key) => {
+          const inp = h('input', { class: 'input mono', value: r[key] || '', placeholder: '—', spellcheck: 'false' });
+          inp.addEventListener('input', () => { r[key] = inp.value; refresh(); changed(r); });
+          return inp;
+        };
+        const used = roleUsage(r.id);
+        const del = h('button', { class: 'icon-btn sm del', title: T('delete'), onclick: () => {
+          if (used && !confirm(T('role.confirmDelete', { name: r.name, n: used }))) return;
+          S.roles = S.roles.filter((x) => x !== r);
+          changed(r);
+          renderRows();
+        } }, ico('trash'));
+        refresh();
+        list.append(h('div', { class: 'role-row' },
+          icon,
+          h('div', { class: 'role-name' }, name, example),
+          type, color, affix('prefix'), affix('suffix'),
+          h('span', { class: 'role-usage', title: T('role.usageTitle') }, T('role.usageN', { n: used })),
+          del));
+      });
+    };
+    renderRows();
+
+    const uniqueRoleId = (name) => {
+      const base = M.slugify(name).toLowerCase() || 'role';
+      let id = base, k = 2;
+      while (roleById(id)) id = base + k++;
+      return id;
+    };
+    const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
+    fileIn.addEventListener('change', async () => {
+      const f = fileIn.files[0];
+      fileIn.value = '';
+      if (!f) return;
+      try {
+        const arr = JSON.parse(await f.text());
+        const okType = (t) => M.PARTICIPANT_TYPES.some((x) => x.v === t);
+        let n = 0;
+        (Array.isArray(arr) ? arr : arr.roles || []).forEach((x) => {
+          if (!x || !x.id || !/^[A-Za-z0-9_-]+$/.test(x.id) || !okType(x.type) || !/^#[0-9a-f]{6}$/i.test(x.color)) return;
+          const r = { id: x.id, name: String(x.name || x.id), type: x.type, color: x.color.toLowerCase(), prefix: String(x.prefix || ''), suffix: String(x.suffix || '') };
+          const i = S.roles.findIndex((y) => y.id === r.id);
+          if (i >= 0) { if (!snap.has(r.id)) snap.set(r.id, { ...S.roles[i] }); S.roles[i] = r; } else S.roles.push(r);
+          changed(r);
+          n++;
+        });
+        renderRows();
+        toast(T('role.imported', { n }));
+      } catch (e) { toast(T('role.importFailed'), 'err'); }
+    });
+
+    const body = h('div', { class: 'roles' },
+      h('p', { class: 'roles-intro' }, T('role.intro')),
+      list,
+      h('div', { class: 'roles-foot' },
+        h('div', { class: 'row', style: 'flex:none' },
+          h('button', { class: 'btn sm', onclick: () => {
+            const r = { id: uniqueRoleId(T('role.newName')), name: T('role.newName'), type: 'participant', color: PCOLORS[S.roles.length % PCOLORS.length], prefix: '', suffix: '' };
+            S.roles.push(r);
+            saveRoles(); renderPalette(); renderRows();
+            const inputs = $$('.role-name .input', list);
+            if (inputs.length) { inputs[inputs.length - 1].focus(); inputs[inputs.length - 1].select(); }
+          } }, ico('plus'), T('role.add')),
+          h('button', { class: 'btn sm ghost', title: T('role.presetTitle'), onclick: () => {
+            const missing = PRESET_ROLES.filter((x) => !roleById(x.id)).map(presetRole);
+            S.roles.push(...missing);
+            saveRoles(); renderPalette(); renderRows();
+            toast(T('role.presetAdded', { n: missing.length }));
+          } }, T('role.preset'))),
+        h('div', { class: 'row', style: 'flex:none' },
+          h('button', { class: 'btn sm ghost', onclick: () => {
+            downloadBlob(new Blob([JSON.stringify(S.roles, null, 2)], { type: 'application/json' }), 'sequence-studio-roles.json');
+          } }, ico('download'), T('role.export')),
+          h('button', { class: 'btn sm ghost', onclick: () => fileIn.click() }, ico('upload'), T('role.import')),
+          fileIn)),
+      h('p', { class: 'roles-note' }, ico('help'), T('role.note')));
+    openModal(T('role.title'), body, true);
+  }
+
   function openTemplates() {
     const grid = h('div', { class: 'tpl-grid' });
     window.SeqTemplates.forEach((tpl) => {
@@ -2410,6 +2655,7 @@
     el.mirror.checked = !!S.settings.mirror;
     el.colorize.checked = S.settings.colorize !== false;
     configureMermaid();
+    if (!S.roles) { S.roles = PRESET_ROLES.map(presetRole); saveRoles(); }
     renderPalette();
     setView(S.settings.view);
     if (S.settings.editorCollapsed) $('#workspace').classList.add('editor-collapsed');
