@@ -152,8 +152,10 @@
       if ((m = line.match(COLOR_RE))) {
         let j = i + 1;
         while (j < lines.length && !lines[j].trim()) j++;
-        const next = j < lines.length ? lines[j].trim().match(BLOCK_RE) : null;
-        if (next && next[1].toLowerCase() !== 'rect' && !box) { pendingColor = m[1].toLowerCase(); continue; }
+        const nextLine = j < lines.length ? lines[j].trim() : '';
+        const next = nextLine.match(BLOCK_RE);
+        // Blok (rect hariç) ya da katılımcı satırının rengi
+        if ((next && next[1].toLowerCase() !== 'rect' && !box) || PART_RE.test(nextLine)) { pendingColor = m[1].toLowerCase(); continue; }
       }
       if (line.startsWith('%%')) { push({ uid: uid(), kind: 'raw', text: line }); continue; }
 
@@ -235,6 +237,8 @@
     }
 
     function addParticipant(m, boxId) {
+      const color = pendingColor;
+      pendingColor = null;
       const keyword = m[1].toLowerCase();
       const id = m[2].trim();
       let type = keyword === 'actor' ? 'actor' : 'participant';
@@ -252,6 +256,7 @@
         pMap.set(id, p);
         model.participants.push(p);
       }
+      if (color) p.color = color;
     }
 
     // Kullanılmayan boş box'ları temizle
@@ -287,11 +292,13 @@
       if (b) {
         out.push(IND + ('box ' + [b.color, b.label].filter(Boolean).join(' ')).trim());
         while (k < parts.length && parts[k].boxId === p.boxId) {
+          if (parts[k].color) out.push(IND + IND + '%% @color ' + parts[k].color);
           out.push(IND + IND + participantLine(parts[k]));
           k++;
         }
         out.push(IND + 'end');
       } else {
+        if (p.color) out.push(IND + '%% @color ' + p.color);
         out.push(IND + participantLine(p));
         k++;
       }

@@ -110,9 +110,11 @@
   const saveSettings = () => store.set(LS.set, S.settings);
 
   const PCOLORS = ['#6c7cff', '#20b8a6', '#f0a020', '#ec5a8f', '#2fbf7f', '#9b6bff', '#3aa0ff', '#f97a3c', '#b5b82c', '#d46bff'];
+  /** Katılımcı rengi: kullanıcının seçtiği (p.color) ya da sıraya göre otomatik */
   const colorOf = (id) => {
     const i = S.model.participants.findIndex((p) => p.id === id);
-    return i < 0 ? '#8a93a6' : PCOLORS[i % PCOLORS.length];
+    if (i < 0) return '#8a93a6';
+    return S.model.participants[i].color || PCOLORS[i % PCOLORS.length];
   };
   const participantById = (id) => S.model.participants.find((p) => p.id === id);
 
@@ -553,7 +555,7 @@
       const { svg } = await mermaid.render(id, safe || code);
       if (seq !== S.renderSeq) return;
       el.canvas.innerHTML = '<div class="paper">' + svg + '</div>';
-      if (S.settings.colorize) colorizeSvg($('.paper svg', el.canvas));
+      colorizeSvg($('.paper svg', el.canvas), S.settings.colorize);
       colorizeBlocks($('.paper svg', el.canvas), S.settings.colorize);
       el.canvas.classList.remove('stale');
       el.renderError.hidden = true;
@@ -592,9 +594,12 @@
    * builder'daki renklerle boyar. Mermaid'in SVG yapısı tipe göre değiştiği için
    * her şekil yatayda en yakın lifeline'ın katılımcısına atanır. Stiller satır içi
    * yazıldığından PNG/SVG dışa aktarmaya da yansır.
+   * "Renkli" kapalıyken (auto=false) yalnızca rengi elle seçilmiş katılımcılar boyanır.
    */
-  function colorizeSvg(svg) {
+  function colorizeSvg(svg, auto) {
     if (!svg) return;
+    const painted = (id) => auto || !!(participantById(id) || {}).color;
+    if (!auto && !S.model.participants.some((p) => p.color)) return;
     const bg = PAPER_BG[mmThemeName()] || '#ffffff';
     const dark = hexToRgb(bg).reduce((a, v) => a + v, 0) < 384;
     const lifelines = $$('line[data-et="life-line"]', svg)
@@ -622,7 +627,7 @@
       if (cs.stroke && cs.stroke !== 'none') el.style.stroke = c;
     };
 
-    for (const l of lifelines) l.el.style.stroke = mix(colorOf(l.id), bg, dark ? 0.55 : 0.5);
+    for (const l of lifelines) if (painted(l.id)) l.el.style.stroke = mix(colorOf(l.id), bg, dark ? 0.55 : 0.5);
     const ACTOR_G = 'g.actor, g.actor-man, g.actor-top, g.actor-bottom, g[data-et="participant"]';
     $$('rect, circle, ellipse, path, line, polygon, polyline', svg).forEach((el) => {
       const cls = el.getAttribute('class') || '';
@@ -631,7 +636,7 @@
       const isActor = /(^|\s)actor(\s|$)/.test(cls) || !!el.closest(ACTOR_G);
       if (!isActivation && !isActor) return;
       const l = nearest(el);
-      if (!l) return;
+      if (!l || !painted(l.id)) return;
       paint(el, colorOf(l.id), isActivation ? (dark ? 0.45 : 0.3) : (dark ? 0.28 : 0.16));
     });
   }
@@ -1229,11 +1234,35 @@
     });
     fillBoxSel(); fillBoxRow();
 
+    // Renk: hazır renkler + özel renk + otomatik (sıraya göre). Kodda "%% @color #hex" olarak saklanır.
+    const colorField = h('div', { class: 'pe-colors' });
+    const fillColors = () => {
+      colorField.innerHTML = '';
+      const setColor = (c) => {
+        touch();
+        if (c) p.color = c; else delete p.color;
+        commit();
+        flushHistory();
+        fillColors();
+      };
+      const cur = colorOf(p.id);
+      const custom = h('input', { type: 'color', value: cur, title: T('block.colorCustom') });
+      custom.addEventListener('change', () => setColor(custom.value.toLowerCase()));
+      add(colorField,
+        h('div', { class: 'swatches' }, PCOLORS.map((c) => h('button', {
+          class: 'swatch' + (p.color === c ? ' active' : ''), style: `background:${c}`, title: c, onclick: () => setColor(c),
+        }))),
+        h('label', { class: 'cm-custom' }, custom, h('span', null, T('block.colorCustom'))),
+        p.color ? h('button', { class: 'btn ghost sm', onclick: () => setColor(null) }, T('pe.colorAuto')) : null);
+    };
+    fillColors();
+
     pop.append(
       h('div', { class: 'pop-title' }, T('pe.title'), h('button', { class: 'icon-btn sm', onclick: closePopover }, ico('x'))),
       h('div', { class: 'field' }, h('label', null, T('pe.label')), labelIn),
       h('div', { class: 'field' }, h('label', null, T('pe.id')), idIn, idHint),
       h('div', { class: 'field' }, h('label', null, T('pe.type')), typeGrid),
+      h('div', { class: 'field' }, h('label', null, T('pe.color')), colorField),
       h('div', { class: 'field' }, h('label', null, T('pe.box')), boxSel, boxRow),
       h('div', { class: 'pop-actions' },
         h('button', { class: 'btn danger sm', onclick: () => { if (deleteParticipant(p)) closePopover(); } }, ico('trash'), T('delete')),
