@@ -645,7 +645,8 @@ textarea.input { height: 34px; min-height: 34px; padding: 6px 10px; }
 .drawer-actions { display: flex; gap: 8px; }
 .drawer-actions .btn.primary { flex: 1; justify-content: center; }
 .doc-item { position: relative; }
-.doc-item.dragging { opacity: .4; }
+.doc-item.dragging, .folder.dragging { opacity: .4; }
+.folder-body > .folder { margin-left: -2px; }
 .folder { border-radius: 10px; border: 1px dashed transparent; transition: background .15s, border-color .15s; }
 .folder.drop-over, .root-docs.drop-over, .doc-list.drop-over > .root-docs { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .folder-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 4px; border-radius: 9px; cursor: pointer; user-select: none; }

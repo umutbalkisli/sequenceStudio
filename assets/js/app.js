@@ -331,23 +331,40 @@
     persistDocs();
     renderDocList();
   }
-  // Klasörler (tek seviye). Belge, d.folder ile bir klasöre bağlanır; yoksa kökte durur.
+  // Klasörler (iç içe). Belge d.folder ile, klasör f.parent ile üst klasörüne bağlanır; yoksa kökte durur.
   const folderById = (id) => id && S.folders.find((f) => f.id === id);
-  function createFolder() {
+  const childFolders = (parentId) => S.folders.filter((f) => (f.parent || null) === (parentId || null))
+    .sort((a, b) => a.name.localeCompare(b.name, I18N.getLang()));
+  /** a, b'nin kendisi ya da alt klasörü mü? */
+  const isWithin = (a, b) => { for (let f = folderById(a); f; f = folderById(f.parent)) if (f.id === b) return true; return false; };
+  /** Klasörü ve tüm üst klasörlerini aç */
+  const expandTo = (id) => { for (let f = folderById(id); f; f = folderById(f.parent)) f.collapsed = false; };
+  /** Klasör ve alt klasörlerindeki toplam diyagram */
+  const folderDocCount = (id) => S.docs.filter((d) => d.folder && isWithin(d.folder, id)).length;
+  /** Ağaç sırasında klasörler (taşıma menüsü için) */
+  const folderTree = (parentId, depth = 0) => childFolders(parentId).flatMap((f) => [{ f, depth }, ...folderTree(f.id, depth + 1)]);
+
+  function createFolder(parentId) {
     const base = T('folder.new');
+    const siblings = childFolders(parentId);
     let n = base, k = 2;
-    while (S.folders.some((f) => f.name === n)) n = base + ' (' + k++ + ')';
+    while (siblings.some((f) => f.name === n)) n = base + ' (' + k++ + ')';
     const f = { id: 'f' + newDocId().slice(1), name: n, collapsed: false };
+    if (parentId) { f.parent = parentId; expandTo(parentId); }
     S.folders.push(f);
     persistDocs();
     renderDocList(f.id);
+    return f;
   }
   function deleteFolder(id) {
     const f = folderById(id);
     if (!f) return;
-    const n = S.docs.filter((d) => d.folder === id).length;
-    if (n && !confirm(T('folder.confirmDelete', { name: f.name, n }))) return;
-    S.docs.forEach((d) => { if (d.folder === id) delete d.folder; });
+    const nDocs = S.docs.filter((d) => d.folder === id).length;
+    const nSub = S.folders.filter((x) => x.parent === id).length;
+    if ((nDocs || nSub) && !confirm(T('folder.confirmDelete', { name: f.name, n: nDocs, m: nSub }))) return;
+    // İçerik bir üst seviyeye çıkar
+    S.docs.forEach((d) => { if (d.folder === id) { if (f.parent) d.folder = f.parent; else delete d.folder; } });
+    S.folders.forEach((x) => { if (x.parent === id) { if (f.parent) x.parent = f.parent; else delete x.parent; } });
     S.folders = S.folders.filter((x) => x.id !== id);
     persistDocs();
     renderDocList();
@@ -356,29 +373,45 @@
     const d = S.docs.find((x) => x.id === docId);
     if (!d || (d.folder || null) === (folderId || null)) return;
     if (folderId) d.folder = folderId; else delete d.folder;
-    const f = folderById(folderId);
-    if (f) f.collapsed = false;
+    expandTo(folderId);
+    persistDocs();
+    renderDocList();
+  }
+  function moveFolder(id, parentId) {
+    const f = folderById(id);
+    if (!f || (f.parent || null) === (parentId || null) || (parentId && isWithin(parentId, id))) return;
+    if (parentId) f.parent = parentId; else delete f.parent;
+    expandTo(parentId);
     persistDocs();
     renderDocList();
   }
 
-  /** Klasör/doküman sürükle-bırak: bırakma hedefi klasör ya da kök alanıdır. */
+  /** Sürükle-bırak: diyagram ya da klasör, bir klasöre veya kök alanına bırakılır. */
+  let draggingFolder = null;
   function docDropZone(node, folderId) {
+    const accepts = (e) => {
+      const t = e.dataTransfer.types;
+      if (t.includes('text/x-seq-doc')) return true;
+      return t.includes('text/x-seq-folder') && draggingFolder && !(folderId && isWithin(folderId, draggingFolder));
+    };
     node.addEventListener('dragover', (e) => {
-      if (!e.dataTransfer.types.includes('text/x-seq-doc')) return;
+      if (!accepts(e)) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
+      $$('.drop-over', el.drawer).forEach((x) => { if (x !== node) x.classList.remove('drop-over'); });
       node.classList.add('drop-over');
     });
     node.addEventListener('dragleave', (e) => { if (!node.contains(e.relatedTarget)) node.classList.remove('drop-over'); });
     node.addEventListener('drop', (e) => {
-      const id = e.dataTransfer.getData('text/x-seq-doc');
-      if (!id) return;
+      const docId = e.dataTransfer.getData('text/x-seq-doc');
+      const fId = e.dataTransfer.getData('text/x-seq-folder');
+      if (!docId && !fId) return;
       e.preventDefault();
       e.stopPropagation();
       node.classList.remove('drop-over');
-      moveDoc(id, folderId);
+      if (docId) moveDoc(docId, folderId);
+      else moveFolder(fId, folderId);
     });
   }
 
@@ -395,17 +428,18 @@
     const menu = h('div', { class: 'move-menu', onclick: (e) => e.stopPropagation() },
       h('div', { class: 'mm-title' }, T('folder.moveTo')),
       opt(T('folder.root'), 'menu', null),
-      sortedFolders().map((f) => opt(f.name, 'folder', f.id)),
+      folderTree(null).map(({ f, depth }) => {
+        const o = opt(f.name, 'folder', f.id);
+        o.style.paddingLeft = 8 + depth * 16 + 'px';
+        return o;
+      }),
       h('button', { class: 'mm-opt', onclick: (e) => {
         e.stopPropagation();
         closeMoveMenu();
-        createFolder();
-        moveDoc(d.id, S.folders[S.folders.length - 1].id);
+        moveDoc(d.id, createFolder().id);
       } }, ico('folderPlus'), h('span', null, T('folder.newEllipsis'))));
     row.append(menu);
   }
-
-  const sortedFolders = () => [...S.folders].sort((a, b) => a.name.localeCompare(b.name, I18N.getLang()));
 
   function renderDocItem(d) {
     const item = h('div', { class: 'doc-item' + (S.doc && d.id === S.doc.id ? ' active' : ''), draggable: 'true', onclick: () => { openDoc(d.id); closeDrawer(); } },
@@ -444,6 +478,8 @@
       else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
     });
     input.addEventListener('blur', () => finish(true));
+    const head = nameEl.closest('.folder-head');
+    if (head) head.draggable = false; // giriş alanında metin seçimi sürüklemeye dönüşmesin
     nameEl.replaceWith(input);
     input.focus();
     input.select();
@@ -451,25 +487,41 @@
 
   function renderFolder(f, docs, renameId) {
     const name = h('span', { class: 'fh-name' }, f.name);
-    const head = h('div', { class: 'folder-head', role: 'button', 'aria-expanded': String(!f.collapsed),
+    const subs = childFolders(f.id);
+    const own = docs.filter((d) => d.folder === f.id);
+    const head = h('div', { class: 'folder-head', role: 'button', draggable: 'true', 'aria-expanded': String(!f.collapsed),
       onclick: () => { f.collapsed = !f.collapsed; persistDocs(); renderDocList(); } },
       h('span', { class: 'fh-chev' }, ico('chevron')),
       h('span', { class: 'fh-icon' }, ico('folder')),
       name,
-      h('span', { class: 'fh-count' }, docs.length),
+      h('span', { class: 'fh-count', title: T('folder.countTitle') }, folderDocCount(f.id)),
       h('div', { class: 'di-actions' },
         h('button', { class: 'icon-btn sm', title: T('folder.newDoc'), onclick: (e) => {
           e.stopPropagation();
           createDoc(T('doc.untitled'), tplL(window.SeqTemplates[0]).code, true, f.id);
           closeDrawer();
         } }, ico('plus')),
+        h('button', { class: 'icon-btn sm', title: T('folder.newSub'), onclick: (e) => { e.stopPropagation(); createFolder(f.id); } }, ico('folderPlus')),
         h('button', { class: 'icon-btn sm', title: T('folder.rename'), onclick: (e) => { e.stopPropagation(); startFolderRename(f, name); } }, ico('edit')),
         h('button', { class: 'icon-btn sm', title: T('folder.delete'), onclick: (e) => { e.stopPropagation(); deleteFolder(f.id); } }, ico('trash'))));
     name.addEventListener('dblclick', (e) => { e.stopPropagation(); startFolderRename(f, name); });
+    head.addEventListener('dragstart', (e) => {
+      e.stopPropagation();
+      closeMoveMenu();
+      draggingFolder = f.id;
+      e.dataTransfer.setData('text/x-seq-folder', f.id);
+      e.dataTransfer.effectAllowed = 'move';
+      requestAnimationFrame(() => box.classList.add('dragging'));
+    });
+    head.addEventListener('dragend', () => {
+      draggingFolder = null;
+      box.classList.remove('dragging');
+      $$('.drop-over', el.drawer).forEach((x) => x.classList.remove('drop-over'));
+    });
     const box = h('div', { class: 'folder' + (f.collapsed ? ' collapsed' : '') }, head);
     if (!f.collapsed) {
-      box.append(docs.length
-        ? h('div', { class: 'folder-body' }, docs.map(renderDocItem))
+      box.append(subs.length || own.length
+        ? h('div', { class: 'folder-body' }, subs.map((sf) => renderFolder(sf, docs, renameId)), own.map(renderDocItem))
         : h('div', { class: 'folder-empty' }, T('folder.empty')));
     }
     docDropZone(box, f.id);
@@ -480,10 +532,13 @@
   function renderDocList(renameId) {
     hideNameTip();
     el.docList.innerHTML = '';
-    // Silinmiş klasörlere işaret eden belgeleri köke al
+    // Silinmiş klasörlere işaret eden belge/klasörleri köke al; döngüleri kır
     S.docs.forEach((d) => { if (d.folder && !folderById(d.folder)) delete d.folder; });
+    S.folders.forEach((f) => {
+      if (f.parent && (!folderById(f.parent) || isWithin(f.parent, f.id))) delete f.parent;
+    });
     const docs = [...S.docs].sort((a, b) => b.updated - a.updated);
-    sortedFolders().forEach((f) => el.docList.append(renderFolder(f, docs.filter((d) => d.folder === f.id), renameId)));
+    childFolders(null).forEach((f) => el.docList.append(renderFolder(f, docs, renameId)));
     const root = docs.filter((d) => !d.folder);
     if (S.folders.length) el.docList.append(h('div', { class: 'root-label' }, T('folder.root')));
     const rootBox = h('div', { class: 'root-docs' }, root.map(renderDocItem));
@@ -523,8 +578,7 @@
 
   function openDrawer() {
     // Açık belgenin klasörünü göster
-    const f = S.doc && folderById(S.doc.folder);
-    if (f && f.collapsed) { f.collapsed = false; persistDocs(); }
+    if (S.doc && S.doc.folder) { expandTo(S.doc.folder); persistDocs(); }
     renderDocList();
     el.drawer.classList.add('open');
     el.scrim.classList.add('show');
