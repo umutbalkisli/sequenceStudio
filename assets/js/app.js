@@ -111,10 +111,10 @@
 
   const PCOLORS = ['#6c7cff', '#20b8a6', '#f0a020', '#ec5a8f', '#2fbf7f', '#9b6bff', '#3aa0ff', '#f97a3c', '#b5b82c', '#d46bff'];
   /** Katılımcı rengi: kullanıcının seçtiği (p.color) ya da sıraya göre otomatik */
-  const colorOf = (id) => {
-    const i = S.model.participants.findIndex((p) => p.id === id);
+  const colorOf = (id, model = S.model) => {
+    const i = model.participants.findIndex((p) => p.id === id);
     if (i < 0) return '#8a93a6';
-    return S.model.participants[i].color || PCOLORS[i % PCOLORS.length];
+    return model.participants[i].color || PCOLORS[i % PCOLORS.length];
   };
   const participantById = (id) => S.model.participants.find((p) => p.id === id);
 
@@ -502,6 +502,7 @@
           closeDrawer();
         } }, ico('plus')),
         h('button', { class: 'icon-btn sm', title: T('folder.newSub'), onclick: (e) => { e.stopPropagation(); createFolder(f.id); } }, ico('folderPlus')),
+        h('button', { class: 'icon-btn sm', title: T('fx.title'), onclick: (e) => { e.stopPropagation(); closeDrawer(); openFolderExport(f.id); } }, ico('download')),
         h('button', { class: 'icon-btn sm', title: T('folder.rename'), onclick: (e) => { e.stopPropagation(); startFolderRename(f, name); } }, ico('edit')),
         h('button', { class: 'icon-btn sm', title: T('folder.delete'), onclick: (e) => { e.stopPropagation(); deleteFolder(f.id); } }, ico('trash'))));
     name.addEventListener('dblclick', (e) => { e.stopPropagation(); startFolderRename(f, name); });
@@ -650,10 +651,12 @@
    * yazıldığından PNG/SVG dışa aktarmaya da yansır.
    * "Renkli" kapalıyken (auto=false) yalnızca rengi elle seçilmiş katılımcılar boyanır.
    */
-  function colorizeSvg(svg, auto) {
+  function colorizeSvg(svg, auto, model = S.model) {
     if (!svg) return;
-    const painted = (id) => auto || !!(participantById(id) || {}).color;
-    if (!auto && !S.model.participants.some((p) => p.color)) return;
+    const pById = (id) => model.participants.find((p) => p.id === id);
+    const colorOfM = (id) => colorOf(id, model);
+    const painted = (id) => auto || !!(pById(id) || {}).color;
+    if (!auto && !model.participants.some((p) => p.color)) return;
     const bg = PAPER_BG[mmThemeName()] || '#ffffff';
     const dark = hexToRgb(bg).reduce((a, v) => a + v, 0) < 384;
     const lifelines = $$('line[data-et="life-line"]', svg)
@@ -661,7 +664,7 @@
         const r = l.getBoundingClientRect();
         return { el: l, id: l.getAttribute('data-id'), x: r.left + r.width / 2 };
       })
-      .filter((l) => participantById(l.id));
+      .filter((l) => pById(l.id));
     if (!lifelines.length) return;
     const xs = lifelines.map((l) => l.x).sort((a, b) => a - b);
     let gap = Infinity;
@@ -681,7 +684,7 @@
       if (cs.stroke && cs.stroke !== 'none') el.style.stroke = c;
     };
 
-    for (const l of lifelines) if (painted(l.id)) l.el.style.stroke = mix(colorOf(l.id), bg, dark ? 0.55 : 0.5);
+    for (const l of lifelines) if (painted(l.id)) l.el.style.stroke = mix(colorOfM(l.id), bg, dark ? 0.55 : 0.5);
     const ACTOR_G = 'g.actor, g.actor-man, g.actor-top, g.actor-bottom, g[data-et="participant"]';
     $$('rect, circle, ellipse, path, line, polygon, polyline', svg).forEach((el) => {
       const cls = el.getAttribute('class') || '';
@@ -691,7 +694,7 @@
       if (!isActivation && !isActor) return;
       const l = nearest(el);
       if (!l || !painted(l.id)) return;
-      paint(el, colorOf(l.id), isActivation ? (dark ? 0.45 : 0.3) : (dark ? 0.28 : 0.16));
+      paint(el, colorOfM(l.id), isActivation ? (dark ? 0.45 : 0.3) : (dark ? 0.28 : 0.16));
     });
   }
 
@@ -703,7 +706,7 @@
    * Kullanıcının seçtiği renk (block.color) her zaman uygulanır; tip renkleri
    * yalnızca "Renkli" açıkken (auto).
    */
-  function colorizeBlocks(svg, auto) {
+  function colorizeBlocks(svg, auto, model = S.model) {
     if (!svg) return;
     const bg = PAPER_BG[mmThemeName()] || '#ffffff';
     const dark = hexToRgb(bg).reduce((a, v) => a + v, 0) < 384;
@@ -712,7 +715,7 @@
     // rect dışındaki bloklar kaynak sırasıyla (ön-sıra) çizilir; SVG gruplarını
     // üst kenara göre sıralayınca aynı sıraya denk gelirler.
     const modelBlocks = [];
-    M.walk(S.model.items, (it) => { if (it.kind === 'block' && it.type !== 'rect') modelBlocks.push(it); });
+    M.walk(model.items, (it) => { if (it.kind === 'block' && it.type !== 'rect') modelBlocks.push(it); });
     const groups = $$('g[data-et="control-structure"]', svg).map((g) => {
       const lines = $$('line.loopLine', g).filter((l) => !l.style.strokeDasharray);
       if (!lines.length) return null;
@@ -2179,8 +2182,7 @@
   ];
   const safeName = () => (S.doc && S.doc.name ? S.doc.name : 'diagram').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'diagram';
 
-  function buildExportSvg(bg) {
-    const src = $('.paper svg', el.canvas);
+  function buildExportSvg(bg, src = $('.paper svg', el.canvas)) {
     if (!src) return null;
     const svg = src.cloneNode(true);
     const vb = src.viewBox && src.viewBox.baseVal && src.viewBox.baseVal.width ? src.viewBox.baseVal : { x: 0, y: 0, width: src.getBBox().width, height: src.getBBox().height };
@@ -2307,6 +2309,169 @@
     };
     draw();
     openModal(T('exp.title'), body);
+  }
+
+  // --- Klasör dışa aktarma (.zip) ---
+  /** Sıkıştırmasız (store) ZIP; UTF-8 dosya adları. Harici kütüphane gerektirmez. */
+  const CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+    return t;
+  })();
+  const crc32 = (buf) => { let c = 0xffffffff; for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  function makeZip(entries) {
+    const enc = new TextEncoder();
+    const now = new Date();
+    const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    const parts = [], central = [];
+    let offset = 0;
+    for (const e of entries) {
+      const name = enc.encode(e.path);
+      const data = e.data || new Uint8Array(0);
+      const crc = crc32(data);
+      const local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint16(6, 0x0800, true);
+      local.setUint16(8, 0, true); local.setUint16(10, time, true); local.setUint16(12, date, true);
+      local.setUint32(14, crc, true); local.setUint32(18, data.length, true); local.setUint32(22, data.length, true);
+      local.setUint16(26, name.length, true); local.setUint16(28, 0, true);
+      parts.push(local, name, data);
+      const cd = new DataView(new ArrayBuffer(46));
+      cd.setUint32(0, 0x02014b50, true); cd.setUint16(4, 20, true); cd.setUint16(6, 20, true); cd.setUint16(8, 0x0800, true);
+      cd.setUint16(10, 0, true); cd.setUint16(12, time, true); cd.setUint16(14, date, true);
+      cd.setUint32(16, crc, true); cd.setUint32(20, data.length, true); cd.setUint32(24, data.length, true);
+      cd.setUint16(28, name.length, true); cd.setUint32(38, e.dir ? 0x10 : 0, true); cd.setUint32(42, offset, true);
+      central.push(cd, name);
+      offset += 30 + name.length + data.length;
+    }
+    const cdSize = central.reduce((a, x) => a + x.byteLength, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+    return new Blob([...parts, ...central, end], { type: 'application/zip' });
+  }
+
+  const fileSafe = (n) => String(n || '').replace(/[\\/:*?"<>|\n\r]+/g, '-').trim() || 'diagram';
+  const docCode = (d) => (S.doc && d.id === S.doc.id ? S.code : d.code);
+
+  /** Bir diyagramı ekran dışında çizer; önizlemedeki renklendirme aynen uygulanır. */
+  let offscreenSeq = 0;
+  async function renderDocSvg(code) {
+    const model = M.parse(code);
+    if (!model.participants.length && !model.items.length) throw new Error(T('exp.nothing'));
+    const id = 'zx' + ++offscreenSeq;
+    const host = h('div', { class: 'offscreen-render', 'aria-hidden': 'true' });
+    document.body.append(host);
+    try {
+      await mermaid.parse(code);
+      const { svg } = await mermaid.render(id, M.previewSafe(model) || code);
+      host.innerHTML = '<div class="paper">' + svg + '</div>';
+      const svgEl = $('svg', host);
+      colorizeSvg(svgEl, S.settings.colorize, model);
+      colorizeBlocks(svgEl, S.settings.colorize, model);
+      return buildExportSvg(exportBg(), svgEl);
+    } finally {
+      host.remove();
+      const stray = document.getElementById('d' + id);
+      if (stray) stray.remove();
+    }
+  }
+
+  /** Klasör ağacındaki diyagramları (isteğe bağlı alt klasörlerle) yol bilgisiyle toplar. */
+  function collectFolder(folderId, withSubs, base) {
+    const f = folderById(folderId);
+    const dir = (base ? base + '/' : '') + fileSafe(f.name);
+    const out = { dirs: [dir], docs: [] };
+    S.docs.filter((d) => d.folder === folderId).sort((a, b) => a.name.localeCompare(b.name, I18N.getLang()))
+      .forEach((d) => out.docs.push({ d, dir }));
+    if (withSubs) childFolders(folderId).forEach((sf) => {
+      const sub = collectFolder(sf.id, true, dir);
+      out.dirs.push(...sub.dirs);
+      out.docs.push(...sub.docs);
+    });
+    return out;
+  }
+
+  function openFolderExport(folderId) {
+    const f = folderById(folderId);
+    if (!f) return;
+    if (el.code.value !== S.code) applyCode(el.code.value, 'code');
+    const ex = S.settings.exp;
+    const hasSubs = childFolders(folderId).length > 0;
+    let withSubs = true;
+    let busy = false;
+    const body = h('div');
+    const draw = () => {
+      body.innerHTML = '';
+      const { docs, dirs } = collectFolder(folderId, withSubs);
+      body.append(h('p', { class: 'fx-info' }, ico('folder'), h('b', null, f.name),
+        h('span', null, T('fx.count', { n: docs.length, m: dirs.length - 1 }))));
+      const grid = h('div', { class: 'fmt-grid' });
+      FORMATS.forEach((x) => grid.append(h('button', { class: 'fmt' + (ex.format === x.v ? ' active' : ''), onclick: () => { ex.format = x.v; saveSettings(); draw(); } }, ico(x.ic), h('b', null, T('fmt.' + x.v)), h('span', null, T('fmt.' + x.v + '.desc')))));
+      body.append(grid);
+      const seg = (opts, val, on) => h('div', { class: 'seg' }, opts.map(([v, l]) => h('button', { class: v === val ? 'active' : '', onclick: () => { on(v); saveSettings(); draw(); } }, l)));
+      if (ex.format === 'png') body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.scale')), seg([[1, '1×'], [2, '2×'], [3, '3×'], [4, '4×']], ex.scale, (v) => { ex.scale = v; })));
+      if (ex.format === 'png' || ex.format === 'svg') body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.bg')), seg([['theme', T('exp.bgTheme')], ['white', T('exp.bgWhite')], ['transparent', T('exp.bgTransparent')]], ex.bg, (v) => { ex.bg = v; })));
+      if (hasSubs) {
+        const cb = h('input', { type: 'checkbox' });
+        cb.checked = withSubs;
+        cb.addEventListener('change', () => { withSubs = cb.checked; draw(); });
+        body.append(h('div', { class: 'opt-row' }, h('label', null, T('fx.subfolders')), h('label', { class: 'fx-check' }, cb, h('span', null, T('fx.subfoldersHint')))));
+      }
+      body.append(h('p', { class: 'roles-note' }, ico('help'), T('fx.note')));
+      const status = h('span', { class: 'dim-info' });
+      const btn = h('button', { class: 'btn primary', disabled: !docs.length || null }, ico('download'), T('fx.download'));
+      btn.addEventListener('click', async () => {
+        if (busy) return;
+        busy = true;
+        btn.disabled = true;
+        const enc = new TextEncoder();
+        const entries = dirs.map((d) => ({ path: d + '/', dir: true }));
+        const used = new Set();
+        const failed = [];
+        const ext = { png: '.png', svg: '.svg', mmd: '.mmd', txt: '.txt' }[ex.format];
+        try {
+          for (let i = 0; i < docs.length; i++) {
+            const { d, dir } = docs[i];
+            status.textContent = T('fx.progress', { i: i + 1, n: docs.length });
+            let name = fileSafe(d.name), k = 2;
+            while (used.has(dir + '/' + name + ext)) name = fileSafe(d.name) + ' (' + k++ + ')';
+            const path = dir + '/' + name + ext;
+            used.add(path);
+            const code = docCode(d);
+            try {
+              let data;
+              if (ex.format === 'mmd' || ex.format === 'txt') data = enc.encode(code);
+              else {
+                const built = await renderDocSvg(code);
+                if (!built) throw new Error(T('exp.nothing'));
+                data = ex.format === 'svg'
+                  ? enc.encode(built.markup)
+                  : new Uint8Array(await (await svgToPngBlob(built.markup, built.w, built.h, effectiveScale(built.w, built.h))).arrayBuffer());
+              }
+              entries.push({ path, data });
+            } catch (err) {
+              const msg = String((err && (err.message || err.str)) || err).trim().slice(0, 600);
+              failed.push('# ' + dir + '/' + d.name + '\n' + msg.split('\n').map((l) => '  ' + l).join('\n'));
+            }
+          }
+          if (failed.length) entries.push({ path: dirs[0] + '/' + T('fx.errorsFile'), data: enc.encode(failed.join('\n\n') + '\n') });
+          const zipName = fileSafe(f.name) + '.zip';
+          downloadBlob(makeZip(entries), zipName);
+          toast(failed.length ? T('fx.doneWithErrors', { n: docs.length - failed.length, m: failed.length }) : T('fx.done', { n: docs.length, name: zipName }), failed.length ? 'err' : undefined);
+          closeModal();
+        } catch (err) {
+          toast(T('exp.failed', { msg: err.message }), 'err');
+        } finally {
+          busy = false;
+          btn.disabled = false;
+          status.textContent = '';
+        }
+      });
+      body.append(h('div', { class: 'export-actions' }, h('div', { class: 'left' }, status), h('div', { class: 'right' }, btn)));
+    };
+    draw();
+    openModal(T('fx.title'), body);
   }
 
   // --- Şablonlar ---

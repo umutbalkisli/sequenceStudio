@@ -834,3 +834,9 @@ kbd { box-shadow: 0 1px 0 var(--border-strong); }
 @media (max-width: 600px) {
   .drawer { width: 92vw; }
 }
+/* Klasör dışa aktarma */
+.offscreen-render { position: fixed; left: -100000px; top: 0; visibility: hidden; pointer-events: none; }
+.fx-info { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 13.5px; }
+.fx-info .ic { width: 18px; height: 18px; color: var(--accent); }
+.fx-info span { color: var(--muted); }
+.fx-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
