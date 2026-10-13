@@ -1021,14 +1021,19 @@
   S.roles = store.get(LS.roles, null);
   const saveRoles = () => store.set(LS.roles, S.roles);
   const roleById = (id) => id && (S.roles || []).find((r) => r.id === id);
+  // Ekler isteğe bağlı satır sonuyla ayrılır: ön ekten sonra (prefixBreak) / son ekten önce (suffixBreak)
+  // (satır sonu varken ekin o taraftaki boşluğu kırpılır: " Service" → "\nService")
+  const prefixStr = (r) => (r && r.prefix ? (r.prefixBreak ? r.prefix.trimEnd() + '\n' : r.prefix) : '');
+  const suffixStr = (r) => (r && r.suffix ? (r.suffixBreak ? '\n' + r.suffix.trimStart() : r.suffix) : '');
   /** Ön/son eki ayıklanmış ad (rolün o anki tanımına göre) */
   function stripAffixes(label, r) {
     let l = String(label || '');
-    if (r && r.prefix && l.startsWith(r.prefix)) l = l.slice(r.prefix.length);
-    if (r && r.suffix && l.endsWith(r.suffix) && l.length > r.suffix.length) l = l.slice(0, -r.suffix.length);
+    const pre = prefixStr(r), suf = suffixStr(r);
+    if (pre && l.startsWith(pre)) l = l.slice(pre.length);
+    if (suf && l.endsWith(suf) && l.length > suf.length) l = l.slice(0, -suf.length);
     return l;
   }
-  const composeLabel = (r, base) => (r ? (r.prefix || '') + base + (r.suffix || '') : base);
+  const composeLabel = (r, base) => prefixStr(r) + base + suffixStr(r);
   const baseName = (p) => stripAffixes(p.label, roleById(p.role));
 
   /** Rolü katılımcıya uygular; adın çekirdeği korunur, ekler yenilenir. */
@@ -1249,9 +1254,9 @@
     const labelIn = multiline(h('textarea', { class: 'input', rows: 1, value: role ? baseName(p) : p.label, placeholder: T('pe.labelPh') }));
     const labelField = role && (role.prefix || role.suffix)
       ? h('div', { class: 'affix-input' },
-        role.prefix ? h('span', { class: 'affix', title: T('role.prefix') }, role.prefix) : null,
+        role.prefix ? h('span', { class: 'affix', title: T('role.prefix') }, role.prefix, role.prefixBreak ? h('span', { class: 'affix-br', title: T('role.breakAfter') }, '↵') : null) : null,
         labelIn,
-        role.suffix ? h('span', { class: 'affix', title: T('role.suffix') }, role.suffix) : null)
+        role.suffix ? h('span', { class: 'affix', title: T('role.suffix') }, role.suffixBreak ? h('span', { class: 'affix-br', title: T('role.breakBefore') }, '↵') : null, role.suffix) : null)
       : labelIn;
     const idIn = h('input', { class: 'input', value: p.id, spellcheck: 'false', style: 'font-family:var(--mono)' });
     const idHint = h('small', null, T('pe.idHint'));
@@ -2293,7 +2298,17 @@
         const affix = (key) => {
           const inp = h('input', { class: 'input mono', value: r[key] || '', placeholder: '—', spellcheck: 'false' });
           inp.addEventListener('input', () => { r[key] = inp.value; refresh(); changed(r); });
-          return inp;
+          // ↵: ön ekten sonra / son ekten önce satır sonu
+          const bk = key + 'Break';
+          const br = h('button', { class: 'affix-break' + (r[bk] ? ' on' : ''), 'aria-pressed': String(!!r[bk]),
+            title: T(key === 'prefix' ? 'role.breakAfter' : 'role.breakBefore') }, ico('enter'));
+          br.addEventListener('click', () => {
+            if (r[bk]) delete r[bk]; else r[bk] = true;
+            br.classList.toggle('on', !!r[bk]);
+            br.setAttribute('aria-pressed', String(!!r[bk]));
+            refresh(); changed(r);
+          });
+          return h('div', { class: 'affix-cell' }, key === 'prefix' ? [inp, br] : [br, inp]);
         };
         const used = roleUsage(r.id);
         const del = h('button', { class: 'icon-btn sm del', title: T('delete'), onclick: () => {
@@ -2331,6 +2346,8 @@
         (Array.isArray(arr) ? arr : arr.roles || []).forEach((x) => {
           if (!x || !x.id || !/^[A-Za-z0-9_-]+$/.test(x.id) || !okType(x.type) || !/^#[0-9a-f]{6}$/i.test(x.color)) return;
           const r = { id: x.id, name: String(x.name || x.id), type: x.type, color: x.color.toLowerCase(), prefix: String(x.prefix || ''), suffix: String(x.suffix || '') };
+          if (x.prefixBreak) r.prefixBreak = true;
+          if (x.suffixBreak) r.suffixBreak = true;
           const i = S.roles.findIndex((y) => y.id === r.id);
           if (i >= 0) { if (!snap.has(r.id)) snap.set(r.id, { ...S.roles[i] }); S.roles[i] = r; } else S.roles.push(r);
           changed(r);
