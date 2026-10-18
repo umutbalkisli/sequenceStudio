@@ -84,7 +84,7 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
   };
 
-  const DEFAULT_SETTINGS = { appTheme: 'system', mmTheme: 'auto', mirror: true, colorize: true, editorCollapsed: false, editorW: null, view: 'builder', exp: { format: 'png', scale: 2, bg: 'theme' } };
+  const DEFAULT_SETTINGS = { appTheme: 'system', mmTheme: 'auto', mirror: true, colorize: true, editorCollapsed: false, editorW: null, view: 'builder', pinParts: true, palCompact: false, exp: { format: 'png', scale: 2, bg: 'theme' } };
 
   // ---------------------------------------------------------------------------
   // Durum
@@ -997,6 +997,7 @@
     $$('button', el.viewSeg).forEach((b) => b.classList.toggle('active', b.dataset.view === v));
     el.viewBuilder.classList.toggle('active', v === 'builder');
     el.viewCode.classList.toggle('active', v === 'code');
+    document.body.classList.toggle('view-code', v === 'code');
     $('#builderMeta').style.visibility = v === 'builder' ? 'visible' : 'hidden';
     if (v === 'code') { updateEditorDecor(); setTimeout(() => el.code.focus({ preventScroll: true }), 0); }
   }
@@ -1033,6 +1034,7 @@
       el.palR.append(chip);
     });
     el.palR.append(h('button', { class: 'chip chip-edit', title: T('role.manage'), onclick: openRoles }, ico('edit'), (S.roles || []).length ? null : T('role.manageShort')));
+    requestAnimationFrame(() => { if (typeof balancePalette === 'function') balancePalette(); });
     M.PARTICIPANT_TYPES.forEach((t, i) => {
       const chip = h('div', { class: 'chip', draggable: 'true', title: T('type.' + t.v) + ' — ' + T('pal.clickOrDrag'), style: `--c:${PCOLORS[i % PCOLORS.length]}` }, ico('t-' + t.v), t.label);
       chip.addEventListener('click', () => addParticipant(t.v));
@@ -2749,6 +2751,78 @@
   el.docName.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.docName.blur(); });
   el.mmTheme.addEventListener('change', () => { S.settings.mmTheme = el.mmTheme.value; saveSettings(); configureMermaid(); scheduleRender(0); });
   el.colorize.addEventListener('change', () => { S.settings.colorize = el.colorize.checked; saveSettings(); scheduleRender(0); });
+  // Palet şeridi: gruplar içerikleriyle orantılı genişlikte; isteğe bağlı kompakt (tek satır)
+  const paletteEl = $('#palette');
+  const btnPalToggle = $('#btnPalToggle');
+  // Üç grubu, hepsi en az satıra sığacak şekilde genişliklendirir: her grup için "R satır için
+  // gereken en küçük genişlik" çip kaydırması simüle edilerek bulunur; toplamın sığdığı en küçük
+  // R seçilir, kalan alan gruplara orantılı dağıtılır.
+  const CHIP_GAP = 5;
+  function rowsAt(ws, W) {
+    let rows = 1, line = 0;
+    for (const w of ws) {
+      if (line && line + CHIP_GAP + w > W) { rows++; line = w; } else line += (line ? CHIP_GAP : 0) + w;
+    }
+    return rows;
+  }
+  function minWidthFor(ws, R) {
+    let lo = Math.max(...ws), hi = ws.reduce((a, w) => a + w + CHIP_GAP, 0);
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (rowsAt(ws, mid) <= R) hi = mid; else lo = mid + 1; }
+    return lo;
+  }
+  function balancePalette() {
+    const groups = $$(':scope > .pal-group', paletteEl);
+    const widths = groups.map((g) => $$('.chip', g).map((c) => c.getBoundingClientRect().width));
+    if (widths.some((ws) => !ws.length || ws.some((w) => !w))) return; // görünmüyor; ResizeObserver tekrar çağırır
+    const frame = groups.map((g) => { const cs = getComputedStyle(g); return parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth); });
+    const avail = groups.reduce((a, g, i) => a + g.getBoundingClientRect().width - frame[i], 0);
+    let need = null;
+    for (let R = 1; R <= 8; R++) {
+      const mins = widths.map((ws) => minWidthFor(ws, R));
+      if (mins.reduce((a, w) => a + w, 0) <= avail - 1 || R === 8) { need = mins; break; }
+    }
+    groups.forEach((g, i) => { g.style.flex = `${need[i]} 1 ${Math.ceil(need[i] + frame[i] + 1)}px`; });
+    requestAnimationFrame(markPalOverflow);
+  }
+  // Kompakt modda yatay taşan grupları işaretle (sağ kenar solması; sona kaydırınca kalkar)
+  function markPalOverflow() {
+    $$('.pal-items', paletteEl).forEach((it) => {
+      it.classList.toggle('overflowing', it.scrollWidth > it.clientWidth + 1);
+      it.classList.toggle('at-end', it.scrollLeft + it.clientWidth >= it.scrollWidth - 2);
+    });
+  }
+  $$('.pal-items', paletteEl).forEach((it) => it.addEventListener('scroll', markPalOverflow, { passive: true }));
+  if (window.ResizeObserver) new ResizeObserver(() => balancePalette()).observe(paletteEl);
+  function applyPalCompact() {
+    const on = !!S.settings.palCompact;
+    paletteEl.classList.toggle('compact', on);
+    btnPalToggle.title = T(on ? 'pal.expand' : 'pal.compact');
+    btnPalToggle.setAttribute('aria-expanded', String(!on));
+    requestAnimationFrame(markPalOverflow);
+  }
+  btnPalToggle.addEventListener('click', () => { S.settings.palCompact = !S.settings.palCompact; saveSettings(); applyPalCompact(); });
+  applyPalCompact();
+
+  // Katılımcılar bölümü: varsayılan olarak üstte sabit
+  const partSection = $('#partSection');
+  const btnPin = $('#btnPinParts');
+  function applyPin() {
+    const on = S.settings.pinParts !== false;
+    partSection.classList.toggle('pinned', on);
+    btnPin.classList.toggle('on', on);
+    btnPin.setAttribute('aria-pressed', String(on));
+    btnPin.title = T(on ? 'pin.off' : 'pin.on');
+    updateStuck();
+  }
+  // Gölge yalnızca bölüm gerçekten üste yapıştığında
+  function updateStuck() {
+    const on = partSection.classList.contains('pinned');
+    partSection.classList.toggle('stuck', on && partSection.getBoundingClientRect().top <= el.bscroll.getBoundingClientRect().top + 1 && el.bscroll.scrollTop > 0);
+  }
+  el.bscroll.addEventListener('scroll', updateStuck, { passive: true });
+  btnPin.addEventListener('click', () => { S.settings.pinParts = !(S.settings.pinParts !== false); saveSettings(); applyPin(); });
+  applyPin();
+
   el.mirror.addEventListener('change', () => { S.settings.mirror = el.mirror.checked; saveSettings(); configureMermaid(); scheduleRender(0); });
   el.autoAct.addEventListener('change', () => {
     if (!S.doc) return;
@@ -2805,6 +2879,7 @@
     S.settings.editorCollapsed = !!collapsed;
     saveSettings();
     $('#workspace').classList.toggle('editor-collapsed', !!collapsed);
+    document.body.classList.toggle('editor-hidden', !!collapsed);
     if (collapsed) closePopover();
     S.zoom.auto = true;
     requestAnimationFrame(fitView);
@@ -2876,6 +2951,8 @@
     closePopover();
     applyAppTheme();
     renderPalette();
+    applyPin();
+    applyPalCompact();
     renderBuilder();
     renderDocList();
     scheduleRender(0);
@@ -2894,7 +2971,7 @@
     if (!S.roles) { S.roles = PRESET_ROLES.map(presetRole); saveRoles(); }
     renderPalette();
     setView(S.settings.view);
-    if (S.settings.editorCollapsed) $('#workspace').classList.add('editor-collapsed');
+    if (S.settings.editorCollapsed) { $('#workspace').classList.add('editor-collapsed'); document.body.classList.add('editor-hidden'); }
 
     const fromHash = await loadFromHash();
     if (!fromHash) {

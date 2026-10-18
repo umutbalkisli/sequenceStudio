@@ -191,6 +191,7 @@ button { cursor: pointer; }
 
 /* ---------- Workspace ---------- */
 .workspace { flex: 1; min-height: 0; display: flex; padding: 12px; gap: 0; }
+.palette:not([hidden]) + .workspace { padding-top: 10px; }
 .pane {
   min-width: 0; display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
@@ -263,18 +264,37 @@ button { cursor: pointer; }
 
 /* ---------- Palette ---------- */
 .palette {
-  flex: none; display: flex; gap: 14px; padding: 10px 12px; border-bottom: 1px solid var(--border);
-  background: var(--panel-2); overflow-x: auto; scrollbar-width: thin;
+  flex: none; display: flex; gap: 14px; padding: 10px 14px; margin: 12px 12px 0;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-sm);
+  overflow-x: auto; scrollbar-width: thin;
 }
+/* Palet yalnızca görsel oluşturucuda işe yarar. Kod görünümünde yerinde kalır ama devre dışıdır
+   (paneller zıplamasın diye); editör tamamen gizliyken saklanır. */
+body.editor-hidden .palette { display: none; }
+body.view-code .palette .pal-items, body.view-code .palette .pal-title > span:first-child, body.view-code .palette > .pal-group:not(:last-child) .pal-title {
+  opacity: .4; filter: grayscale(.5); pointer-events: none;
+}
+.pal-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 16px; }
+.pal-side { display: inline-flex; align-items: center; gap: 8px; margin: -4px -6px -4px 0; }
+.pal-off-note { display: none; font-size: 10.5px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--muted); white-space: nowrap; }
+body.view-code .pal-off-note { display: inline; }
+.pal-toggle { width: 22px; height: 22px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--muted); padding: 0; }
+.pal-toggle:hover { background: var(--panel-3); color: var(--text); }
+.pal-toggle .ic { width: 15px; height: 15px; transition: transform .2s var(--ease); }
+.palette.compact .pal-toggle .ic { transform: rotate(180deg); }
+/* Kompakt: her grup tek satır, taşan çipler yatay kaydırılır */
+.palette.compact { padding-top: 8px; padding-bottom: 8px; }
+.palette.compact .pal-items { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+.palette.compact .pal-items .chip { flex: none; }
+/* Taşan içerik olduğunu sağ kenardaki solmayla belli et */
+.palette.compact .pal-items.overflowing { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
+.palette.compact .pal-items.overflowing.at-end { -webkit-mask-image: none; mask-image: none; }
 .pal-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .pal-group + .pal-group { padding-left: 14px; border-left: 1px solid var(--border); }
 .pal-title { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .pal-items { display: flex; flex-wrap: wrap; gap: 5px; }
-/* Roller paletin üstünde tam genişlikte bir satır */
-.palette:has(.pal-roles) { flex-wrap: wrap; row-gap: 10px; }
-.pal-roles { flex: 1 0 100%; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
-.pal-roles + .pal-group { padding-left: 0; border-left: 0; }
-.pal-roles ~ .pal-group { flex: 1 1 0; min-width: 180px; }
+/* Üç grup yan yana; genişlikleri JS ile çiplerin toplam genişliğine orantılanır (balancePalette) */
+.palette > .pal-group { flex: 1 1 0; min-width: 0; }
 .role-chip { background: color-mix(in srgb, var(--c) 9%, var(--panel)); border-color: color-mix(in srgb, var(--c) 35%, var(--border)); }
 .chip-edit { --c: var(--muted); cursor: pointer; font: inherit; color: var(--text-2); border-style: dashed; padding: 0 8px; }
 .chip {
@@ -305,10 +325,19 @@ button { cursor: pointer; }
 
 /* Participants */
 .participants { display: flex; flex-wrap: wrap; gap: 8px; min-height: 64px; padding: 6px; margin: -6px; border-radius: 12px; transition: background .15s; }
+/* Üstte sabitlenmiş katılımcılar: akış kaydırılırken görünür kalır */
+.b-section.pinned { position: sticky; top: -6px; z-index: 6; background: var(--panel); margin: 0 -14px; padding-left: 14px; padding-right: 14px; }
+.b-section.pinned.stuck { box-shadow: 0 8px 12px -10px rgba(0, 0, 0, .25); border-bottom: 1px solid var(--border); }
+.b-section.pinned .participants { max-height: min(40vh, 260px); overflow-y: auto; }
+.b-section.pinned + .b-section { border-top: 0; }
+.pin-btn { width: 26px; height: 26px; flex: none; }
+.pin-btn .ic { width: 15px; height: 15px; }
+.pin-btn.on { color: var(--accent); background: var(--accent-soft); }
+.b-section-head .head-right { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .participants.drop-active { background: var(--accent-soft); outline: 1.5px dashed var(--accent); outline-offset: -2px; }
 .pcard {
   --c: var(--accent);
-  position: relative; display: flex; align-items: center; gap: 9px; height: 52px; padding: 0 30px 0 8px; min-width: 130px; max-width: 230px;
+  position: relative; display: flex; align-items: center; gap: 9px; min-height: 52px; padding: 7px 30px 7px 8px; min-width: 130px; max-width: 230px;
   border: 1px solid var(--border); border-radius: 11px; background: var(--panel);
   box-shadow: var(--shadow-sm); cursor: pointer; user-select: none;
   transition: border-color .15s, box-shadow .15s, transform .15s, opacity .15s;
@@ -334,7 +363,7 @@ button { cursor: pointer; }
 .pc-handle:hover::after { transform: scale(1); }
 .pc-box-tag { position: absolute; top: -8px; left: 10px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 0 5px; border-radius: 4px; background: var(--panel); color: var(--muted); border: 1px solid var(--border); line-height: 14px; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pcard-add {
-  height: 52px; min-width: 120px; border: 1.5px dashed var(--border-strong); border-radius: 11px; background: transparent;
+  min-height: 52px; min-width: 120px; border: 1.5px dashed var(--border-strong); border-radius: 11px; background: transparent;
   color: var(--muted); display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: 600; padding: 0 14px;
   transition: border-color .15s, color .15s, background .15s;
 }

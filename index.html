@@ -45,6 +45,28 @@
       </div>
     </header>
 
+    <!-- Sabit palet: roller, katılımcı tipleri ve akış adımları (görsel oluşturucu için) -->
+    <div class="palette" id="palette">
+      <div class="pal-group pal-roles">
+        <div class="pal-title" data-i18n="pal.roles"></div>
+        <div class="pal-items" id="palRoles"></div>
+      </div>
+      <div class="pal-group">
+        <div class="pal-title" data-i18n="pal.participants"></div>
+        <div class="pal-items" id="palParticipants"></div>
+      </div>
+      <div class="pal-group">
+        <div class="pal-title">
+          <span data-i18n="pal.flow"></span>
+          <span class="pal-side">
+            <span class="pal-off-note" data-i18n="pal.codeOff"></span>
+            <button class="pal-toggle" id="btnPalToggle"><i data-icon="chevron"></i></button>
+          </span>
+        </div>
+        <div class="pal-items" id="palSteps"></div>
+      </div>
+    </div>
+
     <main class="workspace" id="workspace">
       <!-- SOL: EDİTÖR -->
       <section class="pane pane-editor" id="paneEditor">
@@ -66,36 +88,21 @@
 
         <!-- GÖRSEL OLUŞTURUCU -->
         <div class="view view-builder active" id="viewBuilder">
-          <div class="palette" id="palette">
-            <div class="pal-group pal-roles">
-              <div class="pal-title" data-i18n="pal.roles"></div>
-              <div class="pal-items" id="palRoles"></div>
-            </div>
-            <div class="pal-group">
-              <div class="pal-title" data-i18n="pal.participants"></div>
-              <div class="pal-items" id="palParticipants"></div>
-            </div>
-            <div class="pal-group">
-              <div class="pal-title" data-i18n="pal.flow"></div>
-              <div class="pal-items" id="palSteps"></div>
-            </div>
-          </div>
-
           <div class="builder-scroll" id="builderScroll">
             <div class="b-section">
-              <div class="b-section-head">
-                <h3 data-i18n="sec.diagram"></h3>
-              </div>
               <div class="title-row">
                 <i data-icon="type"></i>
                 <input id="diagramTitle" data-i18n-ph="title.ph" spellcheck="false" />
               </div>
             </div>
 
-            <div class="b-section">
+            <div class="b-section" id="partSection">
               <div class="b-section-head">
                 <h3><span data-i18n="sec.participants"></span> <span class="count" id="partCount">0</span></h3>
-                <span class="hint"><i data-icon="link"></i><span data-i18n="hint.link"></span></span>
+                <div class="head-right">
+                  <span class="hint"><i data-icon="link"></i><span data-i18n="hint.link"></span></span>
+                  <button class="icon-btn pin-btn" id="btnPinParts"><i data-icon="pin"></i></button>
+                </div>
               </div>
               <div class="participants" id="participants"></div>
             </div>
