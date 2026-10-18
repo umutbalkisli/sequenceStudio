@@ -12,7 +12,7 @@ Mermaid is a good format for keeping diagrams next to code, but writing larger s
 
 - **Draw instead of type.** Add participants, connect them to create messages, and drag steps into loops and conditional blocks.
 - **Keep the text.** The visual editor and the Mermaid code stay in sync in both directions. You can switch between them at any time.
-- **Own your data.** Diagrams are stored in your browser's local storage. Nothing leaves your machine unless you export or share it.
+- **Own your data.** Diagrams are stored in your browser (IndexedDB). Nothing leaves your machine unless you export or share it. Use **Back up** in the *My diagrams* menu to download the whole workspace — diagrams, folders, roles and settings — as one file, and **Restore** to bring it back (merge or replace).
 
 ## Features
 

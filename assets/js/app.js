@@ -91,8 +91,8 @@
   // ---------------------------------------------------------------------------
   const S = {
     settings: Object.assign({}, DEFAULT_SETTINGS, store.get(LS.set, {})),
-    docs: store.get(LS.docs, []),
-    folders: store.get(LS.folders, []),
+    docs: [], // init() içinde SeqStorage'dan (IndexedDB) yüklenir
+    folders: [],
     doc: null,
     code: '',
     model: M.emptyModel(),
@@ -277,9 +277,43 @@
   // Belgeler
   // ---------------------------------------------------------------------------
   const newDocId = () => 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  // Depolama hatası bildirimi (art arda gelen hatalarda tek bildirim)
+  let lastStorageErr = 0;
+  function storageError(err) {
+    console.error('[storage]', err);
+    if (Date.now() - lastStorageErr < 5000) return;
+    lastStorageErr = Date.now();
+    const quota = err && (err.name === 'QuotaExceededError' || /quota/i.test(String(err.message || err)));
+    toast(T(quota ? 'storage.full' : 'storage.error'), 'err');
+  }
+  /** Diyagram ve klasörleri kaydeder (IndexedDB'de yalnızca değişenler yazılır). */
   function persistDocs() {
-    if (!store.set(LS.docs, S.docs) || !store.set(LS.folders, S.folders)) toast(T('storage.full'), 'err');
+    window.SeqStorage.saveDocs(S.docs).catch(storageError);
+    window.SeqStorage.saveKV('folders', S.folders).catch(storageError);
     store.set(LS.cur, S.doc && S.doc.id);
+    scheduleBackupUi();
+  }
+  /**
+   * IndexedDB yazmaları asenkron olduğundan sayfa kapanırken son değişiklik yetişmeyebilir: açık diyagram
+   * senkron olarak localStorage'a da yazılır; sonraki açılışta kayıtlı sürümden yeniyse uygulanır.
+   */
+  const RESCUE_KEY = 'seqstudio.rescue';
+  function writeRescue() {
+    if (!S.doc) return;
+    // Kod editörü modele gecikmeli aktarılır: kapanırken editördeki son metni al
+    if (el.code.value !== S.code) applyCode(el.code.value, 'code');
+    if (S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); }
+    store.set(RESCUE_KEY, S.doc);
+    persistDocs();
+  }
+  function applyRescue() {
+    const r = store.get(RESCUE_KEY, null);
+    if (!r || !r.id) return;
+    const d = S.docs.find((x) => x.id === r.id);
+    if (!d) S.docs.unshift(r);
+    else if ((r.updated || 0) > (d.updated || 0)) Object.assign(d, r);
+    else { localStorage.removeItem(RESCUE_KEY); return; }
+    window.SeqStorage.saveDocs(S.docs).then(() => localStorage.removeItem(RESCUE_KEY)).catch(storageError);
   }
   const doSave = debounce(() => {
     if (!S.doc) return;
@@ -583,6 +617,7 @@
     // Açık belgenin klasörünü göster
     if (S.doc && S.doc.folder) { expandTo(S.doc.folder); persistDocs(); }
     renderDocList();
+    refreshBackupUi();
     el.drawer.classList.add('open');
     el.scrim.classList.add('show');
   }
@@ -1129,8 +1164,8 @@
     { id: 'queue', tr: 'Kuyruk', en: 'Message queue', type: 'queue', color: '#9b6bff', prefix: '', suffix: ' Queue' },
   ];
   const presetRole = (r) => ({ id: r.id, name: r[I18N.getLang()] || r.en, type: r.type, color: r.color, prefix: r.prefix, suffix: r.suffix });
-  S.roles = store.get(LS.roles, null);
-  const saveRoles = () => store.set(LS.roles, S.roles);
+  S.roles = null; // init() içinde yüklenir
+  const saveRoles = () => window.SeqStorage.saveKV('roles', S.roles).catch(storageError);
   const roleById = (id) => id && (S.roles || []).find((r) => r.id === id);
   // Ekler isteğe bağlı satır sonuyla ayrılır: ön ekten sonra (prefixBreak) / son ekten önce (suffixBreak)
   // (satır sonu varken ekin o taraftaki boşluğu kırpılır: " Service" → "\nService")
@@ -2563,6 +2598,140 @@
     openModal(T('exp.title'), body);
   }
 
+  // --- Çalışma alanı yedeği (tüm diyagramlar, klasörler, roller, ayarlar) ---
+  const BACKUP_KIND = 'sequence-studio-workspace';
+  const BACKUP_DUE_MS = 7 * 24 * 3600 * 1000;
+  const fmtBytes = (n) => (n == null ? '—' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : n < 1073741824 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1073741824).toFixed(1) + ' GB')
+    .replace('.', I18N.getLang() === 'tr' ? ',' : '.');
+  /** Yedeklenmemiş değişiklik var ve son yedek (ya da ilk kullanım) 7 günden eski mi? */
+  function backupDue() {
+    if (!S.docs.length) return false;
+    const last = S.settings.lastBackup || 0;
+    const changed = S.docs.some((d) => (d.updated || 0) > last);
+    return changed && Date.now() - (last || S.settings.firstUse || Date.now()) > BACKUP_DUE_MS;
+  }
+  function buildBackup() {
+    if (S.doc && S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); }
+    return {
+      kind: BACKUP_KIND, version: 1, app: 'Sequence Studio', exportedAt: new Date().toISOString(),
+      docs: S.docs, folders: S.folders, roles: S.roles || [], settings: S.settings, current: S.doc && S.doc.id,
+    };
+  }
+  function downloadBackup() {
+    const b = buildBackup();
+    const day = new Date().toISOString().slice(0, 10);
+    downloadBlob(new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' }), T('backup.fileName', { date: day }) + '.json');
+    S.settings.lastBackup = Date.now();
+    saveSettings();
+    persistDocs();
+    refreshBackupUi();
+    toast(T('backup.done', { n: b.docs.length }));
+  }
+
+  /** Yedek dosyasını doğrular; geçerli diyagram/klasör/rol listelerini döner (geçersiz kayıtlar atlanır). */
+  function parseBackup(text) {
+    const b = JSON.parse(text);
+    if (!b || b.kind !== BACKUP_KIND || !Array.isArray(b.docs)) throw new Error('kind');
+    const docs = b.docs.filter((d) => d && typeof d.id === 'string' && typeof d.code === 'string')
+      .map((d) => Object.assign({}, d, { name: String(d.name || T('doc.untitled')), updated: +d.updated || Date.now() }));
+    const folders = (Array.isArray(b.folders) ? b.folders : []).filter((f) => f && typeof f.id === 'string').map((f) => Object.assign({}, f, { name: String(f.name || T('folder.new')) }));
+    const okType = (t) => M.PARTICIPANT_TYPES.some((x) => x.v === t);
+    const roles = (Array.isArray(b.roles) ? b.roles : []).filter((r) => r && /^[A-Za-z0-9_-]+$/.test(r.id || '') && okType(r.type) && /^#[0-9a-f]{6}$/i.test(r.color || ''));
+    return { docs, folders, roles, exportedAt: b.exportedAt, current: b.current };
+  }
+
+  /** Birleştir: mevcutlar korunur; aynı kimlikli ama farklı diyagram "(yedek)" kopyası olarak eklenir. */
+  function mergeBackup(bk) {
+    let added = 0, copies = 0, same = 0;
+    const fIds = new Set(S.folders.map((f) => f.id));
+    bk.folders.forEach((f) => { if (!fIds.has(f.id)) { S.folders.push(f); fIds.add(f.id); } });
+    bk.docs.forEach((d) => {
+      const cur = S.docs.find((x) => x.id === d.id);
+      if (!cur) { S.docs.push(d); added++; return; }
+      if (cur.code === d.code && cur.name === d.name) { same++; return; }
+      S.docs.push(Object.assign({}, d, { id: newDocId(), name: uniqueDocName(d.name + T('backup.copySuffix')) }));
+      copies++;
+    });
+    const rIds = new Set((S.roles || []).map((r) => r.id));
+    bk.roles.forEach((r) => { if (!rIds.has(r.id)) { (S.roles = S.roles || []).push(r); rIds.add(r.id); } });
+    return { added, copies, same };
+  }
+  function replaceWithBackup(bk) {
+    S.docs = bk.docs;
+    S.folders = bk.folders;
+    S.roles = bk.roles.length ? bk.roles : PRESET_ROLES.map(presetRole);
+  }
+  function afterRestore(preferId) {
+    persistDocs();
+    saveRoles();
+    renderPalette();
+    const keep = S.doc && S.docs.find((d) => d.id === S.doc.id);
+    if (keep && !preferId) { S.doc = keep; renderDocList(); }
+    else if (S.docs.length) { S.doc = null; openDoc((preferId && S.docs.find((d) => d.id === preferId) ? preferId : S.docs[0].id)); }
+    else { S.doc = null; createDoc(T('doc.untitled'), tplL(window.SeqTemplates[0]).code); }
+    refreshBackupUi();
+  }
+  function openRestore(file) {
+    file.text().then((text) => {
+      let bk;
+      try { bk = parseBackup(text); } catch (e) { return toast(T('backup.invalid'), 'err'); }
+      const when = bk.exportedAt ? new Date(bk.exportedAt).toLocaleString(I18N.getLang() === 'tr' ? 'tr-TR' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+      const choice = (icn, title, desc, cls, onclick) => h('button', { class: 'restore-opt' + (cls ? ' ' + cls : ''), onclick }, ico(icn), h('b', null, title), h('span', null, desc));
+      const body = h('div', { class: 'restore' },
+        h('p', { class: 'restore-sum' }, ico('file'), h('span', null, T('backup.summary', { date: when, n: bk.docs.length, m: bk.folders.length, k: bk.roles.length }))),
+        h('div', { class: 'restore-opts' },
+          choice('plus', T('backup.merge'), T('backup.mergeDesc'), 'primary', () => {
+            if (S.doc && S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); }
+            const r = mergeBackup(bk);
+            closeModal();
+            afterRestore();
+            toast(T('backup.merged', { a: r.added, c: r.copies, s: r.same }));
+          }),
+          choice('swap', T('backup.replace'), T('backup.replaceDesc', { n: S.docs.length }), 'danger', () => {
+            if (!confirm(T('backup.confirmReplace', { n: S.docs.length }))) return;
+            replaceWithBackup(bk);
+            closeModal();
+            afterRestore(bk.current);
+            toast(T('backup.replaced', { n: bk.docs.length }));
+          })),
+        h('p', { class: 'roles-note' }, ico('help'), T('backup.restoreNote')));
+      openModal(T('backup.restoreTitle'), body);
+    });
+  }
+
+  /** Menünün altındaki yedek/depolama bölümü ve menü düğmesindeki hatırlatma noktası */
+  let backupUiTimer = null;
+  function scheduleBackupUi() { clearTimeout(backupUiTimer); backupUiTimer = setTimeout(refreshBackupUi, 400); }
+  function refreshBackupUi() {
+    const due = backupDue();
+    $('#btnDocs').classList.toggle('needs-backup', due);
+    const box = $('#backupBox');
+    if (!box) return;
+    const last = S.settings.lastBackup;
+    const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
+    fileIn.addEventListener('change', () => { const f = fileIn.files[0]; fileIn.value = ''; if (f) { closeDrawer(); openRestore(f); } });
+    const usage = h('div', { class: 'bk-usage' }, '…');
+    box.innerHTML = '';
+    box.classList.toggle('due', due);
+    add(box,
+      h('div', { class: 'bk-status' + (last || due ? '' : ' neutral') }, ico(due ? 'critical' : last ? 'check' : 'help'),
+        h('span', null, last ? T('backup.last', { when: timeAgo(last) }) : T('backup.never')),
+        due ? h('span', { class: 'bk-due' }, T('backup.due')) : null),
+      h('div', { class: 'bk-actions' },
+        h('button', { class: 'btn sm' + (due ? ' primary' : ''), onclick: downloadBackup, title: T('backup.saveTitle') }, ico('download'), T('backup.save')),
+        h('button', { class: 'btn sm ghost', onclick: () => fileIn.click(), title: T('backup.restoreTitle') }, ico('upload'), T('backup.restore')),
+        fileIn),
+      usage);
+    window.SeqStorage.estimate().then((e) => {
+      const where = T(e.mode === 'idb' ? 'storage.idb' : 'storage.local');
+      // Boyut kendi verimizden (tarayıcının tahmini file:// adreslerinde güvenilir değil)
+      const size = T('storage.usage', { size: fmtBytes(e.dataSize) });
+      const pers = e.mode === 'idb' && e.persisted != null ? T(e.persisted ? 'storage.persisted' : 'storage.notPersisted') : '';
+      usage.textContent = [where, size, pers].filter(Boolean).join(' · ');
+      usage.classList.toggle('warn', e.mode !== 'idb');
+    });
+  }
+
   // --- Klasör dışa aktarma (.zip) ---
   /** Sıkıştırmasız (store) ZIP; UTF-8 dosya adları. Harici kütüphane gerektirmez. */
   const CRC_TABLE = (() => {
@@ -3190,9 +3359,9 @@
     }
   });
 
-  window.addEventListener('beforeunload', () => {
-    if (S.doc && S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); persistDocs(); }
-  });
+  window.addEventListener('beforeunload', writeRescue);
+  window.addEventListener('pagehide', writeRescue);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') writeRescue(); });
 
   // ---------------------------------------------------------------------------
   // Başlat
@@ -3222,6 +3391,16 @@
     el.mirror.checked = !!S.settings.mirror;
     el.colorize.checked = S.settings.colorize !== false;
     configureMermaid();
+    // Veri: IndexedDB (gerekirse localStorage'dan taşınır)
+    const data = await window.SeqStorage.init();
+    S.docs = data.docs;
+    S.folders = data.folders || [];
+    S.roles = data.roles;
+    applyRescue();
+    if (!S.settings.firstUse) { S.settings.firstUse = Date.now(); saveSettings(); }
+    if (data.migrated && data.migrated.count) toast(T('storage.migrated', { n: data.migrated.count }));
+    if (data.mode !== 'idb') setTimeout(() => toast(T('storage.fallback'), 'err'), 600);
+    window.SeqStorage.requestPersist().then(() => refreshBackupUi());
     if (!S.roles) { S.roles = PRESET_ROLES.map(presetRole); saveRoles(); }
     renderPalette();
     setView(S.settings.view);
