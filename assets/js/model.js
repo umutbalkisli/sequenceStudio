@@ -76,6 +76,8 @@
   // Mesajın anlamsal tonu (ok çizgisi ve metin rengi): başarılı / hata / uyarı / bilgi
   const TONES = ['success', 'error', 'warning', 'info'];
   const TONE_RE = /^%%\s*@tone\s+(success|error|warning|info)\s*$/i;
+  // Notun başka bir diyagrama bağlantısı ("ref"): Studio'daki diyagram kimliği
+  const REF_RE = /^%%\s*@ref\s+([A-Za-z0-9_-]+)\s*$/;
 
   // Satır sonları modelde "\n", Mermaid'de <br/> olarak tutulur (<br>, <br/>, <br /> okunur)
   const BR_RE = /<br\s*\/?>/gi;
@@ -139,6 +141,7 @@
     let pendingColor = null;
     let pendingRole = null;
     let pendingTone = null;
+    let pendingRef = null;
     let autoNext = false;
 
     for (; i < lines.length; i++) {
@@ -167,6 +170,12 @@
         const isPart = PART_RE.test(nextLine);
         if (colorM && (isPart || (next && next[1].toLowerCase() !== 'rect' && !box))) { pendingColor = colorM[1].toLowerCase(); continue; }
         if (roleM && isPart) { pendingRole = roleM[1]; continue; }
+      }
+      const refM = line.match(REF_RE);
+      if (refM) {
+        let j = i + 1;
+        while (j < lines.length && !lines[j].trim()) j++;
+        if (j < lines.length && NOTE_RE.test(lines[j].trim())) { pendingRef = refM[1]; continue; }
       }
       const toneM = line.match(TONE_RE);
       if (toneM) {
@@ -206,7 +215,9 @@
       if ((m = line.match(NOTE_RE))) {
         const targets = m[2].split(',').map((s) => s.trim()).filter(Boolean).slice(0, 2);
         targets.forEach(ensureParticipant);
-        push({ uid: uid(), line: i, kind: 'note', position: m[1].toLowerCase(), targets, text: decodeText(m[3]) });
+        const note = { uid: uid(), line: i, kind: 'note', position: m[1].toLowerCase(), targets, text: decodeText(m[3]) };
+        if (pendingRef) { note.ref = pendingRef; pendingRef = null; }
+        push(note);
         continue;
       }
 
@@ -350,6 +361,7 @@
         }
         case 'note': {
           const targets = (it.position === 'over' ? it.targets.slice(0, 2) : it.targets.slice(0, 1)).filter(Boolean);
+          if (it.ref) out.push(ind + '%% @ref ' + it.ref);
           out.push(ind + 'Note ' + it.position + ' ' + targets.join(',') + ': ' + encodeText(it.text));
           break;
         }
@@ -428,7 +440,8 @@
    * Gerekmiyorsa null döner.
    */
   const isEmptyBranch = (b) => b.items.every((it) => it.kind === 'activation' && it.auto);
-  function previewSafe(model) {
+  /** previewSafe'in ürettiği (yer tutucuları içeren) model; gerekmiyorsa null. Önizlemede not eşlemesi için. */
+  function previewSafeModel(model) {
     let needs = false;
     walk(model.items, (it) => {
       if (it.kind === 'block' && it.branches.some(isEmptyBranch)) needs = true;
@@ -446,7 +459,11 @@
         });
       }
     });
-    return serialize(m);
+    return m;
+  }
+  function previewSafe(model) {
+    const m = previewSafeModel(model);
+    return m ? serialize(m) : null;
   }
 
   // ---- Otomatik aktivasyon --------------------------------------------------
@@ -605,7 +622,7 @@
   }
 
   const api = {
-    uid, parse, serialize, previewSafe, inferActivations, hasManualActivation, emptyModel, walk, findNode, cloneWithNewUids, slugify,
+    uid, parse, serialize, previewSafe, previewSafeModel, inferActivations, hasManualActivation, emptyModel, walk, findNode, cloneWithNewUids, slugify,
     encodeText, decodeText, encodeBr, decodeBr, parseBoxHeader,
     PARTICIPANT_TYPES, ARROWS, ALL_ARROWS, BLOCK_TYPES, NOTE_POSITIONS, TONES,
   };

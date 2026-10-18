@@ -367,8 +367,8 @@
     // ---- 7) Notlar ----
     svg.querySelectorAll('g[data-et="note"]').forEach((g) => {
       const rects = Array.from(g.querySelectorAll('rect'));
-      const lab = textInfo(Array.from(g.querySelectorAll('text')));
       // Not metni not kutusunun kendi etiketi
+      const lab = textInfo(Array.from(g.querySelectorAll('text.noteText')));
       rects.forEach((r, i) => rectCell(r, i === 0 && lab ? { align: 'center', verticalAlign: 'middle' } : null, i === 0 ? lab : null));
     });
 

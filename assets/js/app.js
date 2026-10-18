@@ -351,6 +351,7 @@
     const d = S.docs.find((x) => x.id === id) || S.docs[0];
     S.doc = d;
     beginVersionSession(d);
+    if (!nav.keep) nav.stack = []; // bağlantıyla gelinmediyse geri dönüş yığını sıfırlanır
     S.selected = null;
     S.collapsed.clear();
     el.docName.value = d.name;
@@ -361,6 +362,7 @@
     resetHistory();
     persistDocs();
     renderDocList();
+    updateNavBack();
   }
   function deleteDoc(id) {
     const d = S.docs.find((x) => x.id === id);
@@ -369,6 +371,8 @@
     window.SeqStorage.deleteVersionsOf(id).catch(storageError);
     if (!S.docs.length) createDoc(T('doc.untitled'), tplL(window.SeqTemplates[0]).code, false);
     if (S.doc.id === id) { S.doc = null; openDoc(S.docs[0].id); }
+    // Açık diyagram silinen diyagrama bağlanıyorsa referans hemen "kopuk" görünsün
+    else if (S.code.includes('@ref ' + id)) { renderBuilder(); scheduleRender(0); }
     persistDocs();
     renderDocList();
   }
@@ -648,13 +652,15 @@
     const id = 'mmd' + seq;
     try {
       await mermaid.parse(code);
-      const safe = M.previewSafe(S.model);
-      const { svg } = await mermaid.render(id, safe || code);
+      const safeModel = renderableModel(S.model);
+      const { svg } = await mermaid.render(id, safeModel ? M.serialize(safeModel) : code);
       if (seq !== S.renderSeq) return;
+      S.renderModel = safeModel || S.model; // önizlemede çizilen model (yer tutucu notlar dahil)
       el.canvas.innerHTML = '<div class="paper">' + svg + '</div>';
       colorizeSvg($('.paper svg', el.canvas), S.settings.colorize);
       colorizeBlocks($('.paper svg', el.canvas), S.settings.colorize);
       colorizeMessages($('.paper svg', el.canvas));
+      decorateRefs($('.paper svg', el.canvas), S.renderModel);
       el.canvas.classList.remove('stale');
       el.renderError.hidden = true;
       S.lastOk = true;
@@ -903,7 +909,7 @@
   (function setupPan() {
     let start = null;
     el.viewport.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || e.target.closest('.zoombar, .render-error')) return;
+      if (e.button !== 0 || e.target.closest('.zoombar, .render-error, .nav-back')) return;
       start = { x: e.clientX, y: e.clientY, zx: S.zoom.x, zy: S.zoom.y, moved: false, target: e.target };
       el.viewport.setPointerCapture(e.pointerId);
     });
@@ -924,13 +930,33 @@
 
   /** Önizlemede bir mesaja/nota tıklanınca editörde ilgili satıra git. */
   function onPreviewClick(target) {
+    // Referans notu: bağlı diyagramı aç
+    const refG = target.closest && target.closest('g.ref-note');
+    if (refG) { followRef(refG.getAttribute('data-ref')); return; }
     const t = target.closest && target.closest('text.messageText, text.noteText');
     if (!t) return;
     const isNote = t.classList.contains('noteText');
-    const all = $$(isNote ? 'text.noteText' : 'text.messageText', el.canvas);
+    const kind = isNote ? 'note' : 'message';
+    if (isNote) {
+      // Notlar: not grubunun sırası önizleme modelindeki notlarla eşlenir (yer tutucu notlar atlanır)
+      const gi = $$('g[data-et="note"]', el.canvas).indexOf(t.closest('g[data-et="note"]'));
+      const rn = [];
+      M.walk((S.renderModel || S.model).items, (it) => { if (it.kind === 'note') rn.push(it); });
+      const hit = rn[gi];
+      if (!hit || hit.uid === 'ph') return;
+      const real = [];
+      M.walk(S.model.items, (it) => { if (it.kind === 'note') real.push(it); });
+      const ri = real.findIndex((n) => n.uid === hit.uid);
+      if (ri < 0) return;
+      return gotoNode('note', ri);
+    }
+    const all = $$('text.messageText', el.canvas);
     const idx = all.indexOf(t);
     if (idx < 0) return;
-    const kind = isNote ? 'note' : 'message';
+    return gotoNode(kind, idx);
+  }
+  /** kind türündeki idx'inci adıma git (kod görünümünde satır, görsel görünümde adım) */
+  function gotoNode(kind, idx) {
     if (currentView() === 'code') {
       const nodes = [];
       M.walk(M.parse(S.code).items, (it) => { if (it.kind === kind) nodes.push(it); });
@@ -1102,6 +1128,7 @@
     { k: 'message', ic: 'message', c: 'var(--accent)' },
     { k: 'reply', ic: 'reply', c: 'var(--muted)' },
     { k: 'note', ic: 'note', c: 'var(--c-note)' },
+    { k: 'ref', ic: 'link', c: 'var(--c-ref)' },
     { k: 'loop', ic: 'loop', c: 'var(--c-loop)' },
     { k: 'alt', ic: 'alt', c: 'var(--c-alt)' },
     { k: 'opt', ic: 'opt', c: 'var(--c-opt)' },
@@ -1666,6 +1693,14 @@
       case 'note':
         if (!P.length) return null;
         return { uid: M.uid(), kind: 'note', position: 'right of', targets: [sel ? sel.to : a], text: '' };
+      case 'ref': {
+        if (!P.length) return null;
+        // Varsayılan hedef: en son düzenlenen diğer diyagram
+        const target = S.docs.filter((d) => d !== S.doc).sort((x, y) => (y.updated || 0) - (x.updated || 0))[0];
+        if (!target) { toast(T('ref.noTarget'), 'err'); return false; }
+        // Tek katılımcıya bağlanır: seçili mesaj varsa mesajın gittiği katılımcı (ayrıntı orada gerçekleşir)
+        return { uid: M.uid(), kind: 'note', position: 'over', targets: [sel ? sel.to : P[0].id], text: target.name, ref: target.id };
+      }
       case 'activation':
         if (!P.length) return null;
         return { uid: M.uid(), kind: 'activation', action: 'activate', participant: sel ? sel.to : a };
@@ -1689,6 +1724,7 @@
 
   function addStep(kind, list, index) {
     const node = newStep(kind);
+    if (node === false) return null; // newStep kendi uyarısını gösterdi
     if (!node) { toast(T('err.needParticipant'), 'err'); return null; }
     insertNode(node, list, index);
     return node;
@@ -2019,7 +2055,7 @@
   function renderStep(it, counter) {
     switch (it.kind) {
       case 'message': return renderMessage(it, counter);
-      case 'note': return renderNote(it);
+      case 'note': return it.ref != null ? renderRef(it) : renderNote(it);
       // Otomatik aktivasyonun ürettiği düzeltme satırları gizli tutulur; DOM'da
       // yer almaları sürükle-bırak indekslerinin modelle hizalı kalmasını sağlar.
       case 'activation': return it.auto ? h('div', { class: 'step auto-act', hidden: true, 'data-uid': it.uid }) : renderActivation(it);
@@ -2109,6 +2145,53 @@
       menu.style.left = Math.max(0, Math.min(btn.offsetLeft - 8, row.clientWidth - menu.offsetWidth - 4)) + 'px';
     });
     return btn;
+  }
+
+  /** Referans adımı: başka bir diyagrama bağlanan not (Mermaid'de "Note over") */
+  function renderRef(it) {
+    const target = S.docs.find((d) => d.id === it.ref);
+    const row = stepShell(it, 'step-note step-ref' + (target ? '' : ' ref-broken'));
+    const sel = h('select', { class: 'mini-select ref-select', title: T('ref.target') });
+    if (!target) sel.append(h('option', { value: it.ref }, T('ref.missing')));
+    // Diyagramlar klasör yollarına göre gruplu
+    const groups = new Map();
+    S.docs.filter((d) => d !== S.doc).sort((a, b) => a.name.localeCompare(b.name, I18N.getLang())).forEach((d) => {
+      const path = folderPath(d.folder) || T('folder.root');
+      if (!groups.has(path)) groups.set(path, []);
+      groups.get(path).push(d);
+    });
+    [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], I18N.getLang())).forEach(([path, ds]) =>
+      sel.append(h('optgroup', { label: path }, ds.map((d) => h('option', { value: d.id }, d.name)))));
+    sel.value = it.ref;
+    sel.addEventListener('change', () => {
+      const old = S.docs.find((d) => d.id === it.ref);
+      const nd = S.docs.find((d) => d.id === sel.value);
+      // Etiket boşsa ya da eski hedefin adıysa (elle değiştirilmemişse) yeni hedefin adını al
+      if (nd && (!String(it.text).trim() || (old && it.text === old.name))) it.text = nd.name;
+      it.ref = sel.value;
+      commit(); flushHistory();
+    });
+    add(row,
+      handleEl(),
+      h('span', { class: 'kind-badge' }, ico('link'), T('badge.ref')),
+      pSelect(it.targets[0], (v) => { it.targets[0] = v; }),
+      // İkinci katılımcı isteğe bağlı: yalnızca "Genişlet" ile ya da zaten iki katılımcılı referanslarda
+      it.targets[1]
+        ? pSelect(it.targets[1], (v) => { it.targets = v ? [it.targets[0], v] : [it.targets[0]]; }, true)
+        : h('button', { class: 'ref-span', title: T('ref.spanTitle'), onclick: () => {
+          const P = S.model.participants;
+          const i = P.findIndex((p) => p.id === it.targets[0]);
+          const next = P[i + 1] || P[i - 1];
+          if (!next) return;
+          it.targets = [it.targets[0], next.id];
+          commit(); flushHistory();
+        } }, ico('plus'), T('ref.span')),
+      sel,
+      textInput(it.text, T('ph.refLabel'), (v) => { it.text = v; }),
+      h('button', { class: 'icon-btn ref-open', title: T('ref.open'), disabled: !target || null, onclick: () => followRef(it.ref) }, ico('external')),
+      actionsEl(it),
+    );
+    return row;
   }
 
   function renderNote(it) {
@@ -2387,34 +2470,53 @@
   const b64url = (bytes) => { let s = ''; bytes.forEach((b) => { s += String.fromCharCode(b); }); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
   const fromB64url = (s) => { const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(bin, (c) => c.charCodeAt(0)); };
 
-  async function encodeShare(code) {
-    const bytes = new TextEncoder().encode(code);
-    if ('CompressionStream' in window) {
-      const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
-      return 'z' + b64url(new Uint8Array(await new Response(stream).arrayBuffer()));
-    }
-    return 'b' + b64url(bytes);
+  /**
+   * Paylaşım linki. Yeni biçim ("y"): ad + girintisi atılmış kod tek parça olarak deflate ile sıkıştırılır
+   * (ad URL'de ayrıca kodlanmaz, girinti tekrarları atılır). Açılınca kod standart girintiyle yeniden yazılır.
+   * Eski "z"/"b" linkleri açılmaya devam eder.
+   */
+  const SHARE_WARN_LEN = 8000;
+  async function deflate(bytes) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
   }
+  async function inflate(bytes) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new TextDecoder().decode(await new Response(stream).arrayBuffer());
+  }
+  async function encodeShare(code, name) {
+    const flat = code.split('\n').map((l) => l.trim()).join('\n');
+    const bytes = new TextEncoder().encode((name || '').replace(/\n/g, ' ') + '\n' + flat);
+    if ('CompressionStream' in window) return 'y' + b64url(await deflate(bytes));
+    return 'c' + b64url(bytes);
+  }
+  /** Döner: { code, name } (eski biçimlerde name = null) */
   async function decodeShare(s) {
     const kind = s[0], bytes = fromB64url(s.slice(1));
-    if (kind === 'z') {
-      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-      return new TextDecoder().decode(await new Response(stream).arrayBuffer());
+    if (kind === 'y' || kind === 'c') {
+      const text = kind === 'y' ? await inflate(bytes) : new TextDecoder().decode(bytes);
+      const nl = text.indexOf('\n');
+      let code = text.slice(nl + 1);
+      // Girintiyi geri kazandır (kod Studio biçimindeyse okunup yeniden yazılır)
+      try { if (/^\s*sequenceDiagram\b/.test(code)) code = M.serialize(M.parse(code)); } catch (e) { /* olduğu gibi kalsın */ }
+      return { code, name: text.slice(0, nl) || null };
     }
-    return new TextDecoder().decode(bytes);
+    if (kind === 'z') return { code: await inflate(bytes), name: null };
+    return { code: new TextDecoder().decode(bytes), name: null };
   }
   async function copyShareLink() {
-    const enc = await encodeShare(S.code);
-    const url = location.href.split('#')[0] + '#s=' + enc + '&n=' + encodeURIComponent(S.doc.name);
+    const enc = await encodeShare(S.code, S.doc.name);
+    const url = location.href.split('#')[0] + '#s=' + enc;
     try { await navigator.clipboard.writeText(url); toast(T('share.copied')); }
     catch (e) { prompt(T('share.prompt'), url); }
+    if (url.length > SHARE_WARN_LEN) setTimeout(() => toast(T('share.long', { n: url.length.toLocaleString(I18N.getLang() === 'tr' ? 'tr-TR' : 'en-US') }), 'err'), 300);
   }
   async function loadFromHash() {
     const m = location.hash.match(/#s=([^&]+)(?:&n=([^&]*))?/);
     if (!m) return false;
     try {
-      const code = await decodeShare(m[1]);
-      createDoc(m[2] ? decodeURIComponent(m[2]) : T('share.docName'), code);
+      const { code, name } = await decodeShare(m[1]);
+      createDoc(name || (m[2] ? decodeURIComponent(m[2]) : T('share.docName')), code);
       toast(T('share.opened'));
     } catch (e) { toast(T('share.failed'), 'err'); }
     history.replaceState(null, '', location.pathname + location.search);
@@ -2738,6 +2840,106 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Diyagramlar arası bağlantı (ref)
+  // ---------------------------------------------------------------------------
+  const REF_COLOR = '#3a8dde';
+  /**
+   * Çizim için model: boş kollara yer tutucu (previewSafeModel) ve referans notlarının başına işaret
+   * ("↗", kopuksa "✕"). İşaret metnin parçası olduğundan Mermaid notun genişliğini ona göre hesaplar
+   * (dar, tek katılımcılı notlarda üst üste binme olmaz). Koddaki etiket değişmez. Gerekmiyorsa null.
+   */
+  function renderableModel(model) {
+    let m = M.previewSafeModel(model);
+    let hasRef = false;
+    M.walk(model.items, (it) => { if (it.kind === 'note' && it.ref) { hasRef = true; return false; } });
+    if (!hasRef) return m;
+    m = m || JSON.parse(JSON.stringify(model));
+    M.walk(m.items, (it) => {
+      if (it.kind === 'note' && it.ref) it.text = (S.docs.some((d) => d.id === it.ref) ? '↗ ' : '✕ ') + (String(it.text).trim() || '…');
+    });
+    return m;
+  }
+  /** Referans notlarını önizlemede ayırt edilir çizer (kesikli çerçeve, renk, araç ipucu) ve tıklanabilir yapar. */
+  function decorateRefs(svg, model) {
+    if (!svg) return;
+    const notes = [];
+    M.walk(model.items, (it) => { if (it.kind === 'note') notes.push(it); });
+    if (!notes.some((n) => n.ref)) return;
+    const groups = $$('g[data-et="note"]', svg);
+    if (groups.length !== notes.length) return;
+    const bg = PAPER_BG[mmThemeName()] || '#ffffff';
+    const dark = hexToRgb(bg).reduce((a, v) => a + v, 0) < 384;
+    const NS = 'http://www.w3.org/2000/svg';
+    groups.forEach((g, i) => {
+      const n = notes[i];
+      if (!n.ref) return;
+      const target = S.docs.find((d) => d.id === n.ref);
+      const c = target ? REF_COLOR : (getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#e5484d');
+      g.classList.add('ref-note');
+      if (!target) g.classList.add('ref-broken');
+      g.setAttribute('data-ref', n.ref);
+      const rect = g.querySelector('rect');
+      if (!rect) return;
+      rect.style.fill = mix(c, bg, dark ? 0.16 : 0.07);
+      rect.style.stroke = c;
+      rect.style.strokeWidth = '1.5px';
+      rect.style.strokeDasharray = '6 3';
+      const ink = dark ? mix(c, '#ffffff', 0.55) : mix(c, '#000000', 0.7);
+      g.querySelectorAll('text, tspan').forEach((t) => { t.style.fill = ink; t.style.fontWeight = '600'; });
+      const tip = document.createElementNS(NS, 'title');
+      tip.textContent = target ? T('ref.tip', { name: target.name }) : T('ref.broken');
+      g.append(tip);
+    });
+  }
+
+  // Bağlantıyla gidilen diyagramlardan geri dönüş yığını
+  const nav = { stack: [], keep: false };
+  function followRef(id) {
+    const d = S.docs.find((x) => x.id === id);
+    if (!d) return toast(T('ref.broken'), 'err');
+    if (S.doc && S.doc.id === id) return;
+    if (S.doc) nav.stack.push(S.doc.id);
+    navOpen(id);
+  }
+  function navOpen(id) {
+    nav.keep = true;
+    try { openDoc(id); } finally { nav.keep = false; }
+    updateNavBack();
+  }
+  function navBack() {
+    while (nav.stack.length) {
+      const id = nav.stack.pop();
+      if (S.docs.some((d) => d.id === id)) return navOpen(id);
+    }
+    updateNavBack();
+  }
+  function updateNavBack() {
+    const btn = $('#navBack');
+    if (!btn) return;
+    nav.stack = nav.stack.filter((id) => S.docs.some((d) => d.id === id));
+    const prev = S.docs.find((d) => d.id === nav.stack[nav.stack.length - 1]);
+    btn.hidden = !prev;
+    if (prev) { btn.lastChild.textContent = prev.name; btn.title = T('ref.backTitle'); }
+  }
+  /** Diyagram yeniden adlandırılınca, ona bağlanan referansların (elle değiştirilmemiş) etiketlerini güncelle */
+  function propagateRefRename(id, oldName, newName) {
+    if (!oldName || oldName === newName) return;
+    const fix = (model) => {
+      let ch = false;
+      M.walk(model.items, (it) => { if (it.kind === 'note' && it.ref === id && it.text === oldName) { it.text = newName; ch = true; } });
+      return ch;
+    };
+    let n = 0;
+    S.docs.forEach((d) => {
+      if (d === S.doc || !d.code.includes('@ref ' + id)) return;
+      const m = M.parse(d.code);
+      if (fix(m)) { d.code = M.serialize(m); n++; }
+    });
+    if (S.doc && S.doc.id !== id && fix(S.model)) { commit(); n++; }
+    if (n) { persistDocs(); toast(T('ref.renamed', { n })); }
+  }
+
+  // ---------------------------------------------------------------------------
   // Sürüm geçmişi (diyagram başına)
   // Otomatik: oturumdaki ilk değişiklikten önceki hâl, düzenleme sürdükçe en fazla 10 dakikada bir,
   // başka diyagrama geçerken ve sekme kapanırken. Değişiklik yoksa sürüm alınmaz.
@@ -2992,24 +3194,18 @@
     });
     if (target) { setSelected(target.uid); focusRow(target.uid); const row = el.flow.querySelector(`[data-uid="${target.uid}"]`); if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); } }
   }
-  /** Kod görünümünde: eşleşen mesaj/not/katılımcı satırını seç ve görünür yap */
+  /** Kod görünümünde: eşleşen mesaj/not/katılımcı satırını seç (selectCodeLine ile) */
   function jumpToCodeLine(hit) {
     let target = null;
     if (hit.kind === 'participant') {
       const p = S.model.participants[hit.idx];
-      if (p) { const i = S.code.split('\n').findIndex((l) => new RegExp('^\\s*(participant|actor)\\s+' + p.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(l)); if (i >= 0) target = i; }
+      const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (p) { const i = S.code.split('\n').findIndex((l) => new RegExp('^\\s*(participant|actor)\\s+' + esc(p.id) + '\\b').test(l)); if (i >= 0) target = i; }
     } else {
       const c = { message: 0, note: 0, block: 0 };
       M.walk(S.model.items, (it) => { if (target != null) return false; if (it.kind === hit.kind && c[it.kind]++ === hit.idx && it.line != null) target = it.line; });
     }
-    if (target == null) return;
-    const lines = el.code.value.split('\n');
-    const start = lines.slice(0, target).reduce((a, l) => a + l.length + 1, 0);
-    el.code.focus({ preventScroll: true });
-    el.code.setSelectionRange(start, start + (lines[target] || '').length);
-    const lh = parseFloat(getComputedStyle(el.code).lineHeight) || 21;
-    el.code.scrollTop = Math.max(0, target * lh - el.code.clientHeight / 3);
-    el.code.dispatchEvent(new Event('scroll'));
+    if (target != null) selectCodeLine(target);
   }
   let searchUi = null;
   function closeSearch() { if (searchUi) { searchUi.root.hidden = true; } }
@@ -3136,12 +3332,14 @@
     document.body.append(host);
     try {
       await mermaid.parse(code);
-      const { svg } = await mermaid.render(id, M.previewSafe(model) || code);
+      const safeModel = renderableModel(model);
+      const { svg } = await mermaid.render(id, safeModel ? M.serialize(safeModel) : code);
       host.innerHTML = '<div class="paper">' + svg + '</div>';
       const svgEl = $('svg', host);
       colorizeSvg(svgEl, S.settings.colorize, model);
       colorizeBlocks(svgEl, S.settings.colorize, model);
       colorizeMessages(svgEl, model);
+      decorateRefs(svgEl, safeModel || model);
       const built = buildExportSvg(exportBg(), svgEl);
       if (built && opts && opts.drawio) built.drawio = toDrawio(svgEl, model, opts.drawio);
       return built;
@@ -3409,6 +3607,7 @@
             [T('help.act'), T('help.actd')],
             [T('help.tone'), T('help.toned')],
             [T('help.goto'), T('help.gotod')],
+            [T('help.ref'), T('help.refd')],
           ])}
           <h4 style="margin-top:18px">${T('help.shortcuts')}</h4>
           ${rows([
@@ -3527,6 +3726,10 @@
     persistDocs();
   });
   el.docName.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.docName.blur(); });
+  let nameBefore = null;
+  el.docName.addEventListener('focus', () => { nameBefore = S.doc && S.doc.name; });
+  el.docName.addEventListener('change', () => { if (S.doc) propagateRefRename(S.doc.id, nameBefore, S.doc.name); nameBefore = S.doc && S.doc.name; });
+  $('#navBack').addEventListener('click', navBack);
   el.mmTheme.addEventListener('change', () => { S.settings.mmTheme = el.mmTheme.value; saveSettings(); configureMermaid(); scheduleRender(0); });
   el.colorize.addEventListener('change', () => { S.settings.colorize = el.colorize.checked; saveSettings(); scheduleRender(0); });
   // Palet şeridi: gruplar içerikleriyle orantılı genişlikte; isteğe bağlı kompakt (tek satır)

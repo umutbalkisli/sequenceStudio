@@ -18,6 +18,7 @@
   --c-rect: #8a93a6;
   --c-note: #d9b23a;
   --c-raw: #8a93a6;
+  --c-ref: #3a8dde;
   --c-activation: #5b8cff;
 }
 
@@ -1006,3 +1007,23 @@ kbd { box-shadow: 0 1px 0 var(--border-strong); }
 .si-time { font-size: 11px; color: var(--muted); flex: none; padding-top: 2px; }
 .search-item mark { background: color-mix(in srgb, var(--accent) 24%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 .search-foot { border-top: 1px solid var(--border); padding: 7px 14px; font-size: 11.5px; color: var(--muted); }
+
+/* ---------- Diyagramlar arası bağlantı (ref) ---------- */
+.step-ref { --c: var(--c-ref); }
+.step-ref.ref-broken { --c: var(--danger); }
+.ref-select { max-width: 190px; }
+.step-ref.ref-broken .ref-select { border-color: var(--danger); color: var(--danger); }
+.ref-open { color: var(--c-ref); }
+.ref-span { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 26px; padding: 0 8px; border-radius: 7px; border: 1px dashed var(--border-strong); background: none; color: var(--muted); font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.ref-span .ic { width: 12px; height: 12px; }
+.ref-span:hover { color: var(--c-ref); border-color: var(--c-ref); }
+.paper g.ref-note { cursor: pointer; }
+.paper g.ref-note:hover rect { filter: brightness(.96); }
+.nav-back {
+  position: absolute; top: 12px; left: 12px; z-index: 4; display: inline-flex; align-items: center; gap: 6px; max-width: 60%;
+  height: 32px; padding: 0 12px 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel);
+  box-shadow: var(--shadow); font-size: 12.5px; font-weight: 600; color: var(--text); cursor: pointer;
+}
+.nav-back .ic { width: 15px; height: 15px; color: var(--c-ref); flex: none; }
+.nav-back span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-back:hover { border-color: var(--c-ref); }
