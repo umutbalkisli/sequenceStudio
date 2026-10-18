@@ -218,7 +218,7 @@
     for (let i = 1; i < xs.length; i++) gap = Math.min(gap, xs[i] - xs[i - 1]);
     const tol = gap === Infinity ? 1e6 : gap / 2;
     const shapeEls = Array.from(svg.querySelectorAll('rect, path, circle, ellipse, line, polygon')).filter((el) =>
-      !skip(el) && !el.closest('g[data-et="control-structure"], g[data-et="note"], .block-bgs')
+      !skip(el) && !el.closest('g[data-et="control-structure"], g[data-et="note"], .block-bgs, .seq-legend')
       && el.getAttribute('data-et') !== 'message' && !/\b(activation\d|messageLine\d|note|rect|labelBox|loopLine)\b/.test(el.getAttribute('class') || ''));
     const actorTexts = Array.from(svg.querySelectorAll('text.actor'));
     const SHAPES = {
@@ -370,6 +370,30 @@
       // Not metni not kutusunun kendi etiketi
       const lab = textInfo(Array.from(g.querySelectorAll('text.noteText')));
       rects.forEach((r, i) => rectCell(r, i === 0 && lab ? { align: 'center', verticalAlign: 'middle' } : null, i === 0 ? lab : null));
+    });
+
+    // ---- 7b) Lejant: çerçeve + rol şekilleri (rengiyle) + ok renkleri + adlar, tek grup ----
+    svg.querySelectorAll('g.seq-legend').forEach((lg) => {
+      const kids = [];
+      const fr = lg.querySelector('rect.lg-frame');
+      if (fr) kids.push(rectCell(fr));
+      lg.querySelectorAll('g.lg-item').forEach((it) => {
+        const color = it.getAttribute('data-color');
+        const t = it.querySelector('text.lg-text');
+        const lab = textInfo(t);
+        if (it.getAttribute('data-kind') === 'role') {
+          const chip = it.querySelector('rect.lg-chip');
+          used.add(chip);
+          const type = it.getAttribute('data-type');
+          kids.push(vertex(box(chip), (SHAPES[type] || 'rounded=1;') + styleStr(Object.assign({ html: 1, strokeColor: color }, fillStyle(fillOf(chip))))));
+        } else {
+          const ln = it.querySelector('line.lg-tone');
+          kids.push(lineCell(ln, { endArrow: 'block', endFill: 1, endSize: 4 }));
+        }
+        if (lab) kids.push(vertex(Object.assign({}, lab.box, { x: lab.box.x - 2, w: lab.box.w + 8 }), styleStr(Object.assign({ text: '', html: 1, strokeColor: 'none', fillColor: 'none', whiteSpace: 'nowrap', align: 'left', verticalAlign: 'middle', spacing: 0 }, lab.font)), lab.html));
+        it.querySelectorAll('*').forEach((e) => used.add(e)); // ikonların iç yolları
+      });
+      group(kids);
     });
 
     // ---- 8) Kalanlar: başlık, box adları ve tanınmayan öğeler ----

@@ -78,6 +78,8 @@
   const TONE_RE = /^%%\s*@tone\s+(success|error|warning|info)\s*$/i;
   // Notun başka bir diyagrama bağlantısı ("ref"): Studio'daki diyagram kimliği
   const REF_RE = /^%%\s*@ref\s+([A-Za-z0-9_-]+)\s*$/;
+  // Rol tanımı (paylaşılan/dışa aktarılan kodda taşınır; alıcı rolü kütüphanesine ekleyebilsin)
+  const ROLEDEF_RE = /^%%\s*@roledef\s+([A-Za-z0-9_-]+)\s+(\{.*\})\s*$/;
 
   // Satır sonları modelde "\n", Mermaid'de <br/> olarak tutulur (<br>, <br/>, <br /> okunur)
   const BR_RE = /<br\s*\/?>/gi;
@@ -170,6 +172,10 @@
         const isPart = PART_RE.test(nextLine);
         if (colorM && (isPart || (next && next[1].toLowerCase() !== 'rect' && !box))) { pendingColor = colorM[1].toLowerCase(); continue; }
         if (roleM && isPart) { pendingRole = roleM[1]; continue; }
+      }
+      const rdM = line.match(ROLEDEF_RE);
+      if (rdM) {
+        try { (model.roleDefs = model.roleDefs || {})[rdM[1]] = JSON.parse(rdM[2]); continue; } catch (e) { /* bozuksa ham satır olarak kalsın */ }
       }
       const refM = line.match(REF_RE);
       if (refM) {
@@ -320,6 +326,7 @@
     const out = [];
     if (model.frontmatter) out.push(model.frontmatter);
     out.push('sequenceDiagram');
+    if (model.roleDefs) Object.keys(model.roleDefs).forEach((id) => out.push(IND + '%% @roledef ' + id + ' ' + JSON.stringify(model.roleDefs[id])));
     if (model.title) out.push(IND + 'title ' + model.title);
     if (model.autonumber) out.push(IND + ('autonumber ' + (model.autonumberArgs || '')).trim());
 

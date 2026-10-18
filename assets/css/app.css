@@ -1027,3 +1027,12 @@ kbd { box-shadow: 0 1px 0 var(--border-strong); }
 .nav-back .ic { width: 15px; height: 15px; color: var(--c-ref); flex: none; }
 .nav-back span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-back:hover { border-color: var(--c-ref); }
+
+/* ---------- Tanımsız roller bilgi çubuğu ---------- */
+.notice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 12px 0; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); background: var(--accent-soft); font-size: 12.5px; }
+.notice > .ic { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.nt-text { flex: 1; min-width: 200px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.nt-chips { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.nt-chips .rp-chip { cursor: default; height: 24px; }
+.nt-actions { display: flex; gap: 6px; flex: none; }

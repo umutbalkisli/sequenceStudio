@@ -84,7 +84,7 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
   };
 
-  const DEFAULT_SETTINGS = { appTheme: 'system', mmTheme: 'auto', mirror: true, colorize: true, editorCollapsed: false, editorW: null, view: 'builder', pinParts: true, palCompact: false, exp: { format: 'png', scale: 2, bg: 'theme' } };
+  const DEFAULT_SETTINGS = { appTheme: 'system', mmTheme: 'auto', mirror: true, colorize: true, editorCollapsed: false, editorW: null, view: 'builder', pinParts: true, palCompact: false, legend: true, exp: { format: 'png', scale: 2, bg: 'theme' } };
 
   // ---------------------------------------------------------------------------
   // Durum
@@ -134,7 +134,7 @@
     partCount: $('#partCount'), stepCount: $('#stepCount'),
     code: $('#code'), codeHl: $('#codeHl'), gutter: $('#gutter'), codeStatus: $('#codeStatus'),
     viewport: $('#viewport'), canvas: $('#canvas'), emptyState: $('#emptyState'), renderError: $('#renderError'),
-    zoomVal: $('#zoomVal'), mmTheme: $('#mmTheme'), mirror: $('#optMirror'), colorize: $('#optColorize'),
+    zoomVal: $('#zoomVal'), mmTheme: $('#mmTheme'), mirror: $('#optMirror'), colorize: $('#optColorize'), legend: $('#optLegend'),
     popover: $('#popover'), overlay: $('#linkOverlay'), linkPath: $('#linkPath'),
     modalRoot: $('#modalRoot'), modalTitle: $('#modalTitle'), modalBody: $('#modalBody'),
     drawer: $('#drawer'), scrim: $('#scrim'), docList: $('#docList'), fileInput: $('#fileInput'),
@@ -363,6 +363,7 @@
     persistDocs();
     renderDocList();
     updateNavBack();
+    checkUnknownRoles();
   }
   function deleteDoc(id) {
     const d = S.docs.find((x) => x.id === id);
@@ -661,6 +662,7 @@
       colorizeBlocks($('.paper svg', el.canvas), S.settings.colorize);
       colorizeMessages($('.paper svg', el.canvas));
       decorateRefs($('.paper svg', el.canvas), S.renderModel);
+      addLegend($('.paper svg', el.canvas), S.model);
       el.canvas.classList.remove('stale');
       el.renderError.hidden = true;
       S.lastOk = true;
@@ -2460,7 +2462,7 @@
       const fence = text.match(/```mermaid\s*\n([\s\S]*?)```/);
       if (fence) text = fence[1];
       if (!/sequenceDiagram/.test(text)) toast(T('import.noSeq'), 'err');
-      createDoc(file.name.replace(/\.(mmd|mermaid|txt|md)$/i, ''), text.trim() + '\n');
+      createDoc(file.name.replace(/\.(mmd|mermaid|txt|md)$/i, ''), stripKnownRoleDefs(text.trim() + '\n'));
       toast(T('import.done', { name: file.name }));
     };
     r.readAsText(file);
@@ -2505,7 +2507,7 @@
     return { code: new TextDecoder().decode(bytes), name: null };
   }
   async function copyShareLink() {
-    const enc = await encodeShare(S.code, S.doc.name);
+    const enc = await encodeShare(withRoleDefs(S.code), S.doc.name);
     const url = location.href.split('#')[0] + '#s=' + enc;
     try { await navigator.clipboard.writeText(url); toast(T('share.copied')); }
     catch (e) { prompt(T('share.prompt'), url); }
@@ -2516,7 +2518,7 @@
     if (!m) return false;
     try {
       const { code, name } = await decodeShare(m[1]);
-      createDoc(name || (m[2] ? decodeURIComponent(m[2]) : T('share.docName')), code);
+      createDoc(name || (m[2] ? decodeURIComponent(m[2]) : T('share.docName')), stripKnownRoleDefs(code));
       toast(T('share.opened'));
     } catch (e) { toast(T('share.failed'), 'err'); }
     history.replaceState(null, '', location.pathname + location.search);
@@ -2657,7 +2659,7 @@
         const fname = (nameIn.value.trim() || 'diagram') + ext;
         try {
           if (ex.format === 'mmd' || ex.format === 'txt') {
-            downloadBlob(new Blob([S.code], { type: 'text/plain;charset=utf-8' }), fname);
+            downloadBlob(new Blob([withRoleDefs(S.code)], { type: 'text/plain;charset=utf-8' }), fname);
           } else if (ex.format === 'drawio') {
             const src = $('.paper svg', el.canvas);
             if (!src) return toast(T('exp.nothing'), 'err');
@@ -2690,7 +2692,7 @@
             await navigator.clipboard.writeText(toDrawio(src, S.model, safeName()));
             toast(T('exp.drawioCopied'));
           } else {
-            await navigator.clipboard.writeText(S.code);
+            await navigator.clipboard.writeText(withRoleDefs(S.code));
             toast(T('exp.codeCopied'));
           }
         } catch (err) { toast(T('exp.copyFailed', { msg: err.message }), 'err'); }
@@ -2777,6 +2779,7 @@
     else if (S.docs.length) { S.doc = null; openDoc((preferId && S.docs.find((d) => d.id === preferId) ? preferId : S.docs[0].id)); }
     else { S.doc = null; createDoc(T('doc.untitled'), tplL(window.SeqTemplates[0]).code); }
     refreshBackupUi();
+    checkUnknownRoles();
   }
   function openRestore(file) {
     file.text().then((text) => {
@@ -2837,6 +2840,161 @@
       usage.textContent = [where, size, pers].filter(Boolean).join(' · ');
       usage.classList.toggle('warn', e.mode !== 'idb');
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rol tanımlarını taşıma ve tanımsız rolleri içe alma
+  // ---------------------------------------------------------------------------
+  const roleDef = (r) => {
+    const d = { name: r.name, type: r.type, color: r.color, prefix: r.prefix || '', suffix: r.suffix || '' };
+    if (r.prefixBreak) d.prefixBreak = true;
+    if (r.suffixBreak) d.suffixBreak = true;
+    return d;
+  };
+  /** Dışarı çıkan koda (paylaşım linki, .mmd/.txt) kullanılan rollerin tanımlarını "%% @roledef" olarak ekler. */
+  function withRoleDefs(code) {
+    let m;
+    try { m = M.parse(code); } catch (e) { return code; }
+    const used = [...new Set(m.participants.map((p) => p.role).filter((id) => id && roleById(id)))];
+    if (!used.length) return code;
+    m.roleDefs = Object.assign({}, m.roleDefs);
+    used.forEach((id) => { m.roleDefs[id] = roleDef(roleById(id)); });
+    return M.serialize(m);
+  }
+  /** Dışarıdan gelen kodda (link/dosya), kütüphanede zaten olan rollerin "@roledef" satırlarını atar. */
+  function stripKnownRoleDefs(code) {
+    if (!/@roledef\b/.test(code)) return code;
+    let m;
+    try { m = M.parse(code); } catch (e) { return code; }
+    if (!m.roleDefs) return code;
+    Object.keys(m.roleDefs).forEach((id) => { if (roleById(id)) delete m.roleDefs[id]; });
+    if (!Object.keys(m.roleDefs).length) delete m.roleDefs;
+    return M.serialize(m);
+  }
+  const prettyId = (id) => id.replace(/[-_]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  /** Tanımsız rolün tanımı: koddaki "@roledef" varsa ondan, yoksa diyagramdaki kullanımından çıkarılır. */
+  function inferRoleDef(id, model) {
+    const okType = (t) => M.PARTICIPANT_TYPES.some((x) => x.v === t);
+    const rd = (model.roleDefs || {})[id] || {};
+    const p = model.participants.find((x) => x.role === id) || {};
+    const r = {
+      id,
+      name: typeof rd.name === 'string' && rd.name.trim() ? rd.name.trim() : prettyId(id),
+      type: okType(rd.type) ? rd.type : okType(p.type) ? p.type : 'participant',
+      color: /^#[0-9a-f]{6}$/i.test(rd.color || '') ? rd.color.toLowerCase() : p.color || PCOLORS[(S.roles || []).length % PCOLORS.length],
+      prefix: typeof rd.prefix === 'string' ? rd.prefix : '',
+      suffix: typeof rd.suffix === 'string' ? rd.suffix : '',
+    };
+    if (rd.prefixBreak) r.prefixBreak = true;
+    if (rd.suffixBreak) r.suffixBreak = true;
+    return r;
+  }
+  /** Açık diyagramda kütüphanede olmayan roller varsa editörün üstünde bilgi çubuğu gösterir. */
+  function checkUnknownRoles() {
+    const box = $('#notice');
+    if (!box) return;
+    if (!S.doc) { box.hidden = true; return; }
+    const ignored = S.doc.ignoredRoles || [];
+    const ids = [...new Set(S.model.participants.map((p) => p.role).filter((id) => id && !roleById(id) && !ignored.includes(id)))];
+    if (!ids.length) { box.hidden = true; return; }
+    const defs = ids.map((id) => inferRoleDef(id, S.model));
+    box.innerHTML = '';
+    add(box,
+      ico('help'),
+      h('div', { class: 'nt-text' },
+        h('b', null, T('roles.unknown', { n: defs.length })),
+        h('span', { class: 'nt-chips' }, defs.map((d) => h('span', { class: 'rp-chip', style: `--c:${d.color}` }, ico('t-' + d.type), d.name)))),
+      h('div', { class: 'nt-actions' },
+        h('button', { class: 'btn primary sm', onclick: () => {
+          S.roles = (S.roles || []).concat(defs);
+          saveRoles();
+          renderPalette();
+          // Tanımlar artık kütüphanede: koddaki "@roledef" satırlarına gerek yok
+          if (S.model.roleDefs) {
+            ids.forEach((id) => delete S.model.roleDefs[id]);
+            if (!Object.keys(S.model.roleDefs).length) delete S.model.roleDefs;
+            commit(); flushHistory();
+          } else renderBuilder();
+          box.hidden = true;
+          toast(T('roles.added', { n: defs.length }));
+        } }, ico('plus'), T('roles.addBtn')),
+        h('button', { class: 'btn ghost sm', onclick: () => {
+          S.doc.ignoredRoles = ignored.concat(ids);
+          persistDocs();
+          box.hidden = true;
+        } }, T('roles.ignore'))));
+    box.hidden = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lejant: diyagramda kullanılan roller ve ok renkleri (önizlemede ve dışa aktarımlarda, altta)
+  // ---------------------------------------------------------------------------
+  function legendItems(model) {
+    const items = [], seen = new Set();
+    model.participants.forEach((p) => {
+      if (!p.role || seen.has(p.role)) return;
+      seen.add(p.role);
+      const r = roleById(p.role) || (model.roleDefs || {})[p.role];
+      items.push({ kind: 'role', name: (r && r.name) || prettyId(p.role), type: (r && r.type) || p.type, color: (r && r.color) || p.color || colorOf(p.id, model) });
+    });
+    const tones = new Set();
+    M.walk(model.items, (it) => { if (it.kind === 'message' && it.tone) tones.add(it.tone); });
+    M.TONES.filter((t) => tones.has(t)).forEach((t) => items.push({ kind: 'tone', name: T('tone.' + t), color: TONE_COLORS[t] }));
+    return items;
+  }
+  function addLegend(svg, model) {
+    if (!svg || S.settings.legend === false) return;
+    const items = legendItems(model);
+    if (!items.length) return;
+    const vbA = svg.getAttribute('viewBox');
+    if (!vbA) return;
+    let [vx, vy, vw, vh] = vbA.split(/[\s,]+/).map(Number);
+    const bg = PAPER_BG[mmThemeName()] || '#ffffff';
+    const dark = hexToRgb(bg).reduce((a, v) => a + v, 0) < 384;
+    const ink = dark ? '#c4cad8' : '#4b5368', frameC = dark ? '#384157' : '#d8dce6';
+    const NS = 'http://www.w3.org/2000/svg';
+    const mk = (tag, attrs, style) => { const e = document.createElementNS(NS, tag); Object.entries(attrs || {}).forEach(([k, v]) => e.setAttribute(k, v)); Object.assign(e.style, style || {}); return e; };
+    const g = mk('g', { class: 'seq-legend' });
+    svg.append(g);
+    const PAD = 10, ROW = 22, GAP = 18, ICON = 16, maxW = Math.max(vw - 32, 420);
+    // Öğeleri satırlara yerleştir (metin genişliği ölçülerek)
+    const rows = [[]];
+    let x = 0, widest = 0;
+    items.forEach((it) => {
+      const ig = mk('g', { class: 'lg-item', 'data-kind': it.kind, 'data-color': it.color, 'data-type': it.type || '' });
+      if (it.kind === 'role') {
+        ig.append(mk('rect', { class: 'lg-chip', x: 0, y: -ICON / 2, width: ICON, height: ICON, rx: 4 }, { fill: mix(it.color, bg, dark ? 0.32 : 0.18), stroke: it.color, strokeWidth: '1px' }));
+        // xmlns olmadan ayrıştırılan öğe SVG ad alanında olmaz ve çizilmez
+        const src = window.SeqIcons.icon('t-' + it.type).replace(/currentColor/g, it.color).replace(' class="ic"', ' xmlns="http://www.w3.org/2000/svg"');
+        const icon = document.importNode(new DOMParser().parseFromString(src, 'image/svg+xml').documentElement, true);
+        icon.setAttribute('x', 2); icon.setAttribute('y', -ICON / 2 + 2); icon.setAttribute('width', ICON - 4); icon.setAttribute('height', ICON - 4);
+        ig.append(icon);
+      } else {
+        ig.append(mk('line', { class: 'lg-tone', x1: 0, y1: 0, x2: ICON - 3, y2: 0 }, { stroke: it.color, strokeWidth: '2px' }));
+        ig.append(mk('polygon', { points: `${ICON - 6},-4 ${ICON},0 ${ICON - 6},4` }, { fill: it.color, stroke: 'none' }));
+      }
+      const t = mk('text', { class: 'lg-text', x: ICON + 6, y: 0, 'dominant-baseline': 'central' }, { fill: ink, fontSize: '12px', fontFamily: FONT });
+      t.textContent = it.name;
+      ig.append(t);
+      g.append(ig);
+      const w = ICON + 6 + t.getComputedTextLength();
+      if (x > 0 && x + w > maxW) { rows.push([]); x = 0; }
+      rows[rows.length - 1].push({ ig, x, w });
+      x += w + GAP;
+      widest = Math.max(widest, x - GAP);
+    });
+    const fw = widest + PAD * 2, fh = rows.length * ROW + PAD * 2 - (ROW - ICON);
+    // Dar diyagramlarda lejant sığsın diye genişlet
+    if (fw + 16 > vw) { const extra = fw + 16 - vw; vx -= extra / 2; vw += extra; }
+    const fx = vx + (vw - fw) / 2, fy = vy + vh + 6;
+    g.insertBefore(mk('rect', { class: 'lg-frame', x: fx, y: fy, width: fw, height: fh, rx: 8 }, { fill: dark ? mix(frameC, bg, 0.25) : '#ffffff', stroke: frameC, strokeWidth: '1px' }), g.firstChild);
+    rows.forEach((row, ri) => row.forEach(({ ig, x: ix }) => ig.setAttribute('transform', `translate(${fx + PAD + ix}, ${fy + PAD + ICON / 2 + ri * ROW})`)));
+    const nh = vh + 6 + fh + 10;
+    const oldW = parseFloat(svg.getAttribute('width')), oldH = parseFloat(svg.getAttribute('height'));
+    svg.setAttribute('viewBox', `${vx} ${vy} ${vw} ${nh}`);
+    if (oldH && !/%/.test(svg.getAttribute('height'))) svg.setAttribute('height', oldH * nh / vh);
+    if (oldW && !/%/.test(svg.getAttribute('width')) && vw !== +vbA.split(/[\s,]+/)[2]) svg.setAttribute('width', oldW * vw / +vbA.split(/[\s,]+/)[2]);
+    if (svg.style.maxWidth) svg.style.maxWidth = vw + 'px';
   }
 
   // ---------------------------------------------------------------------------
@@ -3340,6 +3498,7 @@
       colorizeBlocks(svgEl, S.settings.colorize, model);
       colorizeMessages(svgEl, model);
       decorateRefs(svgEl, safeModel || model);
+      addLegend(svgEl, model);
       const built = buildExportSvg(exportBg(), svgEl);
       if (built && opts && opts.drawio) built.drawio = toDrawio(svgEl, model, opts.drawio);
       return built;
@@ -3414,7 +3573,7 @@
             const code = docCode(d);
             try {
               let data;
-              if (ex.format === 'mmd' || ex.format === 'txt') data = enc.encode(code);
+              if (ex.format === 'mmd' || ex.format === 'txt') data = enc.encode(withRoleDefs(code));
               else {
                 const built = await renderDocSvg(code, ex.format === 'drawio' ? { drawio: d.name } : null);
                 if (!built) throw new Error(T('exp.nothing'));
@@ -3732,6 +3891,7 @@
   $('#navBack').addEventListener('click', navBack);
   el.mmTheme.addEventListener('change', () => { S.settings.mmTheme = el.mmTheme.value; saveSettings(); configureMermaid(); scheduleRender(0); });
   el.colorize.addEventListener('change', () => { S.settings.colorize = el.colorize.checked; saveSettings(); scheduleRender(0); });
+  el.legend.addEventListener('change', () => { S.settings.legend = el.legend.checked; saveSettings(); scheduleRender(0); });
   // Palet şeridi: gruplar içerikleriyle orantılı genişlikte; isteğe bağlı kompakt (tek satır)
   const paletteEl = $('#palette');
   const btnPalToggle = $('#btnPalToggle');
@@ -3949,6 +4109,7 @@
     el.mmTheme.value = S.settings.mmTheme;
     el.mirror.checked = !!S.settings.mirror;
     el.colorize.checked = S.settings.colorize !== false;
+    el.legend.checked = S.settings.legend !== false;
     configureMermaid();
     // Veri: IndexedDB (gerekirse localStorage'dan taşınır)
     const data = await window.SeqStorage.init();
