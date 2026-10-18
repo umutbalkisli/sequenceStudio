@@ -73,6 +73,9 @@
   const AUTO_RE = /^%%\s*@auto\s*$/i;
   // Katılımcının rolü (Studio'nun rol kütüphanesindeki kimlik); renk satırıyla birlikte katılımcının üstünde durur
   const ROLE_RE = /^%%\s*@role\s+([A-Za-z0-9_-]+)\s*$/;
+  // Mesajın anlamsal tonu (ok çizgisi ve metin rengi): başarılı / hata / uyarı / bilgi
+  const TONES = ['success', 'error', 'warning', 'info'];
+  const TONE_RE = /^%%\s*@tone\s+(success|error|warning|info)\s*$/i;
 
   // Satır sonları modelde "\n", Mermaid'de <br/> olarak tutulur (<br>, <br/>, <br /> okunur)
   const BR_RE = /<br\s*\/?>/gi;
@@ -135,6 +138,7 @@
     let messageSeen = false;
     let pendingColor = null;
     let pendingRole = null;
+    let pendingTone = null;
     let autoNext = false;
 
     for (; i < lines.length; i++) {
@@ -163,6 +167,13 @@
         const isPart = PART_RE.test(nextLine);
         if (colorM && (isPart || (next && next[1].toLowerCase() !== 'rect' && !box))) { pendingColor = colorM[1].toLowerCase(); continue; }
         if (roleM && isPart) { pendingRole = roleM[1]; continue; }
+      }
+      const toneM = line.match(TONE_RE);
+      if (toneM) {
+        let j = i + 1;
+        while (j < lines.length && !lines[j].trim()) j++;
+        const nextLine = j < lines.length ? lines[j].trim() : '';
+        if (MSG_RE.test(nextLine) && !/^(create|destroy|links?|properties|details|accTitle|accDescr|note|participant|actor)\b/i.test(nextLine)) { pendingTone = toneM[1].toLowerCase(); continue; }
       }
       if (line.startsWith('%%')) { push({ uid: uid(), kind: 'raw', text: line }); continue; }
 
@@ -236,7 +247,9 @@
         ensureParticipant(from);
         ensureParticipant(to);
         messageSeen = true;
-        push({ uid: uid(), line: i, kind: 'message', from, to, arrow: m[2], act: m[3] || '', text: decodeText((m[5] || '').trim()) });
+        const msg = { uid: uid(), line: i, kind: 'message', from, to, arrow: m[2], act: m[3] || '', text: decodeText((m[5] || '').trim()) };
+        if (pendingTone) { msg.tone = pendingTone; pendingTone = null; }
+        push(msg);
         continue;
       }
 
@@ -331,6 +344,7 @@
       switch (it.kind) {
         case 'message': {
           const text = encodeText(it.text);
+          if (it.tone) out.push(ind + '%% @tone ' + it.tone);
           out.push(ind + it.from + it.arrow + (it.act || '') + it.to + ':' + (text ? ' ' + text : ''));
           break;
         }
@@ -593,7 +607,7 @@
   const api = {
     uid, parse, serialize, previewSafe, inferActivations, hasManualActivation, emptyModel, walk, findNode, cloneWithNewUids, slugify,
     encodeText, decodeText, encodeBr, decodeBr, parseBoxHeader,
-    PARTICIPANT_TYPES, ARROWS, ALL_ARROWS, BLOCK_TYPES, NOTE_POSITIONS,
+    PARTICIPANT_TYPES, ARROWS, ALL_ARROWS, BLOCK_TYPES, NOTE_POSITIONS, TONES,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

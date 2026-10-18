@@ -425,7 +425,27 @@ body.view-code .pal-off-note { display: inline; }
   background-repeat: no-repeat; background-position: 0 0, right 4px center; background-size: auto, 14px;
   text-overflow: ellipsis;
   transition: border-color .15s;
+  /* düğme olarak: tek satır, taşan ad … ile */
+  display: inline-block; text-align: left; white-space: nowrap; overflow: hidden; line-height: 28px; color: var(--text); cursor: pointer; flex: none;
 }
+/* Aranabilir katılımcı listesi */
+.pcombo {
+  position: fixed; z-index: 70; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: var(--shadow-lg); overflow: hidden; animation: pop .14s var(--ease);
+}
+.pcombo-search { border: 0; border-bottom: 1px solid var(--border); background: var(--panel); padding: 9px 11px; font-size: 13px; outline: none; color: var(--text); }
+.pcombo-list { max-height: 260px; overflow-y: auto; padding: 4px; }
+.pcombo-opt { --pc: transparent; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; font-size: 13px; }
+.pcombo-opt.active { background: var(--panel-3); }
+.pcombo-opt.current .po-label { font-weight: 700; }
+.pcombo-opt.create { color: var(--accent); font-weight: 600; }
+.pcombo-opt.create .ic { width: 14px; height: 14px; }
+.po-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pc); flex: none; box-shadow: 0 0 0 1px var(--border-strong) inset; }
+.po-dot[style] { box-shadow: none; }
+.po-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.po-label mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.po-id { font-family: var(--mono); font-size: 11px; color: var(--muted); flex: none; }
+.pcombo-empty { padding: 10px; font-size: 12.5px; color: var(--muted); }
 .pselect:hover { border-color: var(--border-strong); }
 .pselect:focus, .aselect:focus, .mini-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .aselect {
@@ -488,6 +508,24 @@ textarea.input { height: 34px; min-height: 34px; padding: 6px 10px; }
 }
 .step-message { --c: var(--accent); }
 .step-message.reply { --c: var(--muted); }
+.step-message.toned::before { width: 4px; }
+/* Mesaj tonu */
+.step-message { position: relative; }
+.tone-btn {
+  --tc: transparent; flex: none; width: 16px; height: 16px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 1.5px dashed var(--border-strong); background: var(--tc); transition: transform .15s, border-color .15s;
+}
+.tone-btn:hover { transform: scale(1.15); border-color: var(--text-2); }
+.tone-btn.on { border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--tc); }
+.step-message:not(:hover):not(.selected) .tone-btn:not(.on) { opacity: .45; }
+.color-menu.tone-menu { left: auto; top: calc(100% - 2px); min-width: 170px; padding: 6px; gap: 2px; }
+.tm-opt { --tc: var(--text-2); display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px; background: none; font-size: 13px; text-align: left; cursor: pointer; color: var(--text); }
+.tm-opt:hover { background: var(--panel-2); }
+.tm-opt.current { background: var(--accent-soft); }
+.tm-dot { --tc: transparent; width: 10px; height: 10px; border-radius: 50%; background: var(--tc); border: 1.5px dashed var(--border-strong); flex: none; }
+.tm-dot[style] { border: 0; }
+.tm-line { --tc: var(--text); width: 22px; height: 0; border-top: 2px solid var(--tc); flex: none; position: relative; }
+.tm-line::after { content: ""; position: absolute; right: -1px; top: -5px; border: 4px solid transparent; border-left: 6px solid var(--tc); border-right: 0; }
 .step-note { --c: var(--c-note); }
 .step-activation { --c: var(--c-activation); }
 .step-raw { --c: var(--c-raw); }

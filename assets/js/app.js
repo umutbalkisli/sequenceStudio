@@ -109,6 +109,8 @@
   S.settings.exp = Object.assign({}, DEFAULT_SETTINGS.exp, S.settings.exp || {});
   const saveSettings = () => store.set(LS.set, S.settings);
 
+  /** Mesaj tonları: ok çizgisi + metin rengi (anlamsal; tema ile uyumlu tonlanır) */
+  const TONE_COLORS = { success: '#22a06b', error: '#e5484d', warning: '#e8910c', info: '#3a8dde' };
   const PCOLORS = ['#6c7cff', '#20b8a6', '#f0a020', '#ec5a8f', '#2fbf7f', '#9b6bff', '#3aa0ff', '#f97a3c', '#b5b82c', '#d46bff'];
   /** Katılımcı rengi: kullanıcının seçtiği (p.color) ya da sıraya göre otomatik */
   const colorOf = (id, model = S.model) => {
@@ -612,6 +614,7 @@
       el.canvas.innerHTML = '<div class="paper">' + svg + '</div>';
       colorizeSvg($('.paper svg', el.canvas), S.settings.colorize);
       colorizeBlocks($('.paper svg', el.canvas), S.settings.colorize);
+      colorizeMessages($('.paper svg', el.canvas));
       el.canvas.classList.remove('stale');
       el.renderError.hidden = true;
       S.lastOk = true;
@@ -757,6 +760,55 @@
     });
     const first = Array.from(parent.children).find((n) => !/^(style|defs)$/i.test(n.tagName));
     parent.insertBefore(layer, first || null);
+  }
+
+  /**
+   * Tonu seçilmiş mesajların ok çizgisini, ok ucunu ve metnini boyar. Ok uçları Mermaid'de
+   * paylaşılan <marker> tanımları olduğu için her ton için bir kopya oluşturulur.
+   * Kullanıcının açık seçimi olduğundan "Renkli" anahtarından bağımsız uygulanır.
+   */
+  function colorizeMessages(svg, model = S.model) {
+    if (!svg) return;
+    const msgs = [];
+    M.walk(model.items, (it) => { if (it.kind === 'message') msgs.push(it); });
+    if (!msgs.some((m) => m.tone)) return;
+    const lines = $$('[data-et="message"]', svg);
+    if (lines.length !== msgs.length) return; // eşleşme güvenilir değilse hiç boyama
+    const texts = $$('text.messageText', svg);
+    const bg = PAPER_BG[mmThemeName()] || '#ffffff';
+    const dark = hexToRgb(bg).reduce((a, v) => a + v, 0) < 384;
+    const markers = new Map();
+    const toneMarker = (url, tone, c) => {
+      const m = /url\(#([^)]+)\)/.exec(url || '');
+      if (!m) return url;
+      const key = m[1] + '--' + tone;
+      if (!markers.has(key)) {
+        const src = svg.getElementById ? svg.getElementById(m[1]) : svg.querySelector('#' + CSS.escape(m[1]));
+        if (!src) return url;
+        const clone = src.cloneNode(true);
+        clone.id = key;
+        clone.querySelectorAll('*').forEach((n) => {
+          const fill = n.getAttribute('fill');
+          if (fill !== 'none') n.style.fill = c;
+          if (n.getAttribute('stroke') || n.style.stroke) n.style.stroke = c;
+        });
+        src.parentNode.append(clone);
+        markers.set(key, true);
+      }
+      return 'url(#' + key + ')';
+    };
+    msgs.forEach((it, i) => {
+      if (!it.tone || !TONE_COLORS[it.tone]) return;
+      const base = TONE_COLORS[it.tone];
+      const c = dark ? mix(base, '#ffffff', 0.8) : base;
+      const ln = lines[i];
+      ln.style.stroke = c;
+      ['marker-start', 'marker-end'].forEach((a) => { if (ln.getAttribute(a)) ln.setAttribute(a, toneMarker(ln.getAttribute(a), it.tone, c)); });
+      if (texts.length === msgs.length) {
+        const ink = dark ? mix(base, '#ffffff', 0.7) : mix(base, '#000000', 0.78);
+        [texts[i], ...texts[i].querySelectorAll('tspan')].forEach((t) => { t.style.fill = ink; });
+      }
+    });
   }
 
   function applyZoom() {
@@ -1684,11 +1736,21 @@
   // --- Render ---
   const listReg = new Map();
 
+  /**
+   * Yeniden çizim sırasında kaydırma konumunu korur. İçerik bir anlığına boşaldığında konum 0'a
+   * düşer; geri yükleme, builder'ın "smooth" kaydırması yüzünden animasyonlu olmasın diye anlık yapılır.
+   */
+  function keepScroll(fn) {
+    const sc = el.bscroll;
+    const st = sc.scrollTop;
+    sc.style.scrollBehavior = 'auto';
+    try { fn(); } finally {
+      sc.scrollTop = st;
+      sc.style.scrollBehavior = '';
+    }
+  }
   function renderBuilder() {
-    const st = el.bscroll.scrollTop;
-    renderParticipants();
-    renderFlow();
-    el.bscroll.scrollTop = st;
+    keepScroll(() => { renderParticipants(); renderFlow(); });
   }
 
   function renderFlow() {
@@ -1773,16 +1835,145 @@
   if (window.ResizeObserver) new ResizeObserver(refitAll).observe(el.flow);
   /** Tek satırlık yerlerde (select, rozet) gösterim için */
   const oneLine = (s) => String(s == null ? '' : s).replace(/\s*\n\s*/g, ' ');
+  // ---------------------------------------------------------------------------
+  // Katılımcı seçici: aranabilir combobox (kapalıyken eski <select> görünümünde)
+  // ---------------------------------------------------------------------------
+  /** Türkçe/aksan duyarsız karşılaştırma için normalize */
+  const norm = (s) => String(s || '').toLocaleLowerCase('tr').replace(/ı/g, 'i').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  let combo = null; // { btn, pop, close }
+  function closeCombo(refocus) {
+    if (!combo) return;
+    const c = combo;
+    combo = null;
+    c.pop.remove();
+    window.removeEventListener('resize', c.onAway);
+    el.bscroll.removeEventListener('scroll', c.onAway);
+    document.removeEventListener('pointerdown', c.onDown, true);
+    if (refocus && c.btn.isConnected) c.btn.focus({ preventScroll: true });
+  }
+  /** Yazılan adla yeni katılımcı ekler (popover açmadan) ve kimliğini döner. */
+  function quickCreateParticipant(name) {
+    const label = name.trim();
+    const p = { uid: M.uid(), id: uniqueId(label), label, type: 'participant', boxId: null, implicit: false };
+    S.model.participants.forEach((q) => { q.implicit = false; });
+    S.model.participants.push(p);
+    return p.id;
+  }
+  function openCombo(btn, value, allowEmpty, choose, initial) {
+    closeCombo();
+    const input = h('input', { class: 'pcombo-search', value: initial || '', placeholder: T('combo.search'), spellcheck: 'false', autocomplete: 'off', 'aria-label': T('combo.search') });
+    const list = h('div', { class: 'pcombo-list', role: 'listbox' });
+    const pop = h('div', { class: 'pcombo' }, input, list);
+    let options = [], active = 0;
+
+    const highlight = (text, q) => {
+      if (!q) return text;
+      const i = norm(text).indexOf(q);
+      if (i < 0) return text;
+      return [text.slice(0, i), h('mark', null, text.slice(i, i + q.length)), text.slice(i + q.length)];
+    };
+    const draw = () => {
+      const q = norm(input.value.trim());
+      const ps = S.model.participants.map((p) => ({ v: p.id, label: oneLine(p.label || p.id), id: p.id, c: colorOf(p.id) }));
+      if (value && !ps.some((o) => o.v === value)) ps.push({ v: value, label: value, id: value, c: colorOf(value) });
+      let shown = ps;
+      if (q) {
+        const rank = (o) => {
+          const l = norm(o.label), i = norm(o.id);
+          if (l.startsWith(q) || i.startsWith(q)) return 0;
+          if (l.split(/\s+/).some((w) => w.startsWith(q))) return 1;
+          if (l.includes(q) || i.includes(q)) return 2;
+          return -1;
+        };
+        shown = ps.map((o) => [o, rank(o)]).filter(([, r]) => r >= 0).sort((a, b) => a[1] - b[1]).map(([o]) => o);
+      }
+      options = [];
+      if (allowEmpty && !q) options.push({ v: '', label: '—', empty: true });
+      options.push(...shown);
+      const typed = input.value.trim();
+      if (typed && !ps.some((o) => norm(o.label) === q || norm(o.id) === q)) options.push({ create: typed });
+      // Açılışta mevcut değeri işaretle; aramada ilk sonucu
+      active = q ? 0 : Math.max(0, options.findIndex((o) => o.v === value));
+      list.innerHTML = '';
+      if (!options.length) list.append(h('div', { class: 'pcombo-empty' }, T('combo.empty')));
+      options.forEach((o, i) => {
+        const row = o.create
+          ? h('div', { class: 'pcombo-opt create', role: 'option' }, ico('plus'), h('span', { class: 'po-label' }, T('combo.create', { name: o.create })))
+          : h('div', { class: 'pcombo-opt' + (o.v === value ? ' current' : ''), role: 'option', 'aria-selected': String(o.v === value) },
+            h('span', { class: 'po-dot', style: o.empty ? null : `--pc:${o.c}` }),
+            h('span', { class: 'po-label' }, highlight(o.label, q)),
+            !o.empty && o.id !== o.label ? h('span', { class: 'po-id' }, o.id) : null);
+        row.addEventListener('pointerdown', (e) => e.preventDefault()); // arama kutusu odağı kaybetmesin
+        row.addEventListener('click', () => pick(i));
+        row.addEventListener('pointermove', () => { if (active !== i) { active = i; mark(); } });
+        list.append(row);
+      });
+      mark();
+    };
+    const mark = () => {
+      $$('.pcombo-opt', list).forEach((r, i) => r.classList.toggle('active', i === active));
+      const a = $$('.pcombo-opt', list)[active];
+      if (a) a.scrollIntoView({ block: 'nearest' });
+    };
+    const pick = (i) => {
+      const o = options[i];
+      if (!o) return;
+      const v = o.create ? quickCreateParticipant(o.create) : o.v;
+      closeCombo();
+      choose(v, !!o.create);
+    };
+    input.addEventListener('input', draw);
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation(); // genel kısayollar (Del, Enter, Esc…) devreye girmesin
+      if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(options.length - 1, active + 1); mark(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(0, active - 1); mark(); }
+      else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); pick(active); }
+      else if (e.key === 'Escape') { e.preventDefault(); closeCombo(true); }
+      else if (e.key === 'Tab') closeCombo();
+    });
+
+    document.body.append(pop);
+    // Konum: düğmenin altında (sığmazsa üstünde); sabit konumlu olduğu için kaydırma alanında kesilmez
+    const r = btn.getBoundingClientRect();
+    const w = Math.max(r.width, 230);
+    pop.style.width = w + 'px';
+    pop.style.left = clamp(r.left, 8, window.innerWidth - w - 8) + 'px';
+    draw();
+    const ph = pop.offsetHeight;
+    pop.style.top = (r.bottom + 4 + ph > window.innerHeight - 8 ? Math.max(8, r.top - 4 - ph) : r.bottom + 4) + 'px';
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+
+    const onAway = () => closeCombo();
+    const onDown = (e) => { if (!pop.contains(e.target) && e.target !== btn && !btn.contains(e.target)) closeCombo(); };
+    window.addEventListener('resize', onAway);
+    el.bscroll.addEventListener('scroll', onAway, { passive: true });
+    document.addEventListener('pointerdown', onDown, true);
+    combo = { btn, pop, onAway, onDown };
+  }
+
   function pSelect(value, onChange, allowEmpty) {
-    const sel = h('select', { class: 'pselect', title: T('participant') });
-    if (allowEmpty) sel.append(h('option', { value: '' }, '—'));
-    const ids = S.model.participants.map((p) => p.id);
-    S.model.participants.forEach((p) => sel.append(h('option', { value: p.id }, oneLine(p.label || p.id))));
-    if (value && !ids.includes(value)) sel.append(h('option', { value }, value));
-    sel.value = value || '';
-    sel.style.setProperty('--pc', value ? colorOf(value) : 'transparent');
-    sel.addEventListener('change', () => { onChange(sel.value); commit(); flushHistory(); });
-    return sel;
+    const p = participantById(value);
+    const btn = h('button', { type: 'button', class: 'pselect', title: T('participant'), 'aria-haspopup': 'listbox' },
+      value ? oneLine(p ? p.label || p.id : value) : '—');
+    btn.style.setProperty('--pc', value ? colorOf(value) : 'transparent');
+    const choose = (v, created) => {
+      if (v === value && !created) return;
+      onChange(v);
+      commit();
+      flushHistory();
+    };
+    const open = (initial) => openCombo(btn, value, allowEmpty, choose, initial);
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (combo && combo.btn === btn) closeCombo(); else open('');
+    });
+    // Odaktayken yazmaya başlamak aramayı o harfle açar
+    btn.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(''); }
+      else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); open(e.key); }
+    });
+    return btn;
   }
 
   function renderStep(it, counter) {
@@ -1800,6 +1991,7 @@
   function renderMessage(it, counter) {
     counter.n++;
     const row = stepShell(it, 'step-message' + (it.arrow.startsWith('--') || it.arrow.startsWith('<<--') ? ' reply' : ''));
+    if (it.tone && TONE_COLORS[it.tone]) { row.classList.add('toned'); row.style.setProperty('--c', TONE_COLORS[it.tone]); }
     const aSel = h('select', { class: 'aselect', title: T('arrow.title') });
     M.ARROWS.forEach((a) => aSel.append(h('option', { value: a.v }, a.glyph + '  ' + T('arrow.' + a.v))));
     if (!M.ARROWS.some((a) => a.v === it.arrow)) aSel.append(h('option', { value: it.arrow }, it.arrow));
@@ -1844,11 +2036,39 @@
         pSelect(it.from, (v) => { it.from = v; }),
         aSel,
         pSelect(it.to, (v) => { it.to = v; })),
+      toneBtn(it),
       txt,
       actBtn,
       actionsEl(it, h('button', { class: 'icon-btn', title: T('swap'), onclick: () => { [it.from, it.to] = [it.to, it.from]; commit(); flushHistory(); } }, ico('swap'))),
     );
     return row;
+  }
+
+  /** Mesaj tonu seçici: küçük renkli nokta → menü (Varsayılan / Başarılı / Hata / Uyarı / Bilgi) */
+  function toneBtn(it) {
+    const btn = h('button', { class: 'tone-btn' + (it.tone ? ' on' : ''), title: T('tone.title') + (it.tone ? ': ' + T('tone.' + it.tone) : ''),
+      style: it.tone ? `--tc:${TONE_COLORS[it.tone]}` : null });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = btn.parentNode.querySelector('.tone-menu');
+      closeColorMenus();
+      if (open) return;
+      const set = (v) => {
+        if (v) it.tone = v; else delete it.tone;
+        closeColorMenus();
+        commit(); flushHistory();
+      };
+      const menu = h('div', { class: 'color-menu tone-menu', onclick: (ev) => ev.stopPropagation() },
+        [''].concat(M.TONES).map((v) => h('button', { class: 'tm-opt' + ((it.tone || '') === v ? ' current' : ''), onclick: () => set(v) },
+          h('span', { class: 'tm-dot', style: v ? `--tc:${TONE_COLORS[v]}` : null }),
+          h('span', { class: 'tm-line', style: v ? `--tc:${TONE_COLORS[v]}` : null }),
+          T(v ? 'tone.' + v : 'tone.none'))));
+      btn.after(menu);
+      // Noktanın altına hizala (satır dışına taşmadan)
+      const row = btn.closest('.step-message');
+      menu.style.left = Math.max(0, Math.min(btn.offsetLeft - 8, row.clientWidth - menu.offsetWidth - 4)) + 'px';
+    });
+    return btn;
   }
 
   function renderNote(it) {
@@ -1916,7 +2136,7 @@
         commit(); flushHistory();
       } }, ico('plus'), BRANCH_LABEL[branchKw]) : null,
       h('div', { class: 'step-actions' },
-        h('button', { class: 'icon-btn collapse-btn', title: T(collapsed ? 'expand' : 'collapse'), onclick: () => { collapsed ? S.collapsed.delete(it.uid) : S.collapsed.add(it.uid); renderFlow(); } }, ico('collapse')),
+        h('button', { class: 'icon-btn collapse-btn', title: T(collapsed ? 'expand' : 'collapse'), onclick: () => { collapsed ? S.collapsed.delete(it.uid) : S.collapsed.add(it.uid); keepScroll(renderFlow); } }, ico('collapse')),
         h('button', { class: 'icon-btn', title: T('unwrap'), onclick: () => unwrapBlock(it.uid) }, ico('fit')),
         h('button', { class: 'icon-btn', title: T('duplicateKey'), onclick: () => duplicateNode(it.uid) }, ico('copy')),
         h('button', { class: 'icon-btn del', title: T('delete'), onclick: () => { if (inner && !confirm(T('block.confirmDelete', { n: inner }))) return; deleteNode(it.uid); } }, ico('trash'))),
@@ -1946,7 +2166,7 @@
   const BLOCK_SWATCHES = ['#f0a020', '#f97a3c', '#f05252', '#ec5a8f', '#9b6bff', '#6c7cff', '#3aa0ff', '#1fb5c9', '#2fbf7f', '#8a93a6'];
   function closeColorMenus() { $$('.color-menu').forEach((m) => m.remove()); }
   document.addEventListener('pointerdown', (e) => {
-    if (!(e.target.closest && e.target.closest('.color-menu, .block-color'))) closeColorMenus();
+    if (!(e.target.closest && e.target.closest('.color-menu, .block-color, .tone-btn'))) closeColorMenus();
   });
   function blockColorBtn(it) {
     const setColor = (c) => {
@@ -2371,6 +2591,7 @@
       const svgEl = $('svg', host);
       colorizeSvg(svgEl, S.settings.colorize, model);
       colorizeBlocks(svgEl, S.settings.colorize, model);
+      colorizeMessages(svgEl, model);
       return buildExportSvg(exportBg(), svgEl);
     } finally {
       host.remove();
@@ -2634,6 +2855,7 @@
             [T('help.addB'), T('help.addBd')],
             [T('help.move'), T('help.moved')],
             [T('help.act'), T('help.actd')],
+            [T('help.tone'), T('help.toned')],
             [T('help.goto'), T('help.gotod')],
           ])}
           <h4 style="margin-top:18px">${T('help.shortcuts')}</h4>
