@@ -814,7 +814,8 @@ textarea.input { height: 34px; min-height: 34px; padding: 6px 10px; }
 .modal-head h2 { margin: 0; font-size: 16px; }
 .modal-body { padding: 4px 20px 20px; overflow: auto; }
 
-.fmt-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; }
+.fmt-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; }
+@media (max-width: 640px) { .fmt-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .fmt {
   display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel);
   text-align: left; transition: border-color .15s, background .15s, box-shadow .15s;
@@ -907,3 +908,8 @@ kbd { box-shadow: 0 1px 0 var(--border-strong); }
 .fx-info .ic { width: 18px; height: 18px; color: var(--accent); }
 .fx-info span { color: var(--muted); }
 .fx-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+/* Dışa aktarma arka plan seçimi */
+.bg-opt { display: inline-flex; align-items: center; gap: 6px; }
+.bg-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bg); box-shadow: 0 0 0 1px var(--border-strong); flex: none; }
+.bg-note { display: flex; gap: 6px; align-items: flex-start; margin: -4px 0 12px; font-size: 11.5px; color: var(--muted); }
+.bg-note .ic { width: 14px; height: 14px; flex: none; margin-top: 1px; }

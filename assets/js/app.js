@@ -2401,7 +2401,16 @@
     { v: 'svg', ic: 'vector' },
     { v: 'mmd', ic: 'code' },
     { v: 'txt', ic: 'file' },
+    { v: 'drawio', ic: 'drawio' },
   ];
+  const EXT = { png: '.png', svg: '.svg', mmd: '.mmd', txt: '.txt', drawio: '.drawio' };
+  /** Çizilmiş (DOM'daki) SVG'yi draw.io dosyasına çevirir; konum ve renkler önizlemedeki gibidir. */
+  function toDrawio(svgEl, model, name) {
+    const types = {};
+    model.participants.forEach((p) => { types[p.id] = p.type; });
+    const bg = exportBg();
+    return window.SeqDrawio.convert(svgEl, { types, name, background: bg === 'transparent' ? 'none' : bg });
+  }
   const safeName = () => (S.doc && S.doc.name ? S.doc.name : 'diagram').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'diagram';
 
   function buildExportSvg(bg, src = $('.paper svg', el.canvas)) {
@@ -2430,6 +2439,18 @@
     if (b === 'transparent') return 'transparent';
     if (b === 'white') return '#ffffff';
     return PAPER_BG[mmThemeName()] || '#ffffff';
+  }
+  /**
+   * Arka plan seçimi satırı (tek diyagram ve klasör dışa aktarmada ortak). "Tema" gerçek rengini bir
+   * renk noktasıyla gösterir (açık temada beyazla aynı olduğu anlaşılsın); şeffafta formata göre not çıkar.
+   */
+  function bgOptionRows(ex, seg) {
+    const themeColor = PAPER_BG[mmThemeName()] || '#ffffff';
+    const themeLabel = h('span', { class: 'bg-opt' }, h('span', { class: 'bg-dot', style: `--bg:${themeColor}` }), T('exp.bgTheme'));
+    const rows = [h('div', { class: 'opt-row' }, h('label', null, T('exp.bg')),
+      seg([['theme', themeLabel], ['white', T('exp.bgWhite')], ['transparent', T('exp.bgTransparent')]], ex.bg, (v) => { ex.bg = v; }))];
+    if (ex.bg === 'transparent') rows.push(h('p', { class: 'bg-note' }, ico('help'), T(ex.format === 'drawio' ? 'exp.bgTransDrawio' : 'exp.bgTransHint')));
+    return rows;
   }
   function effectiveScale(w, ht) {
     let s = S.settings.exp.scale;
@@ -2460,13 +2481,13 @@
     const body = h('div');
     const draw = () => {
       body.innerHTML = '';
-      const isImg = ex.format === 'png' || ex.format === 'svg';
+      const isImg = ex.format === 'png' || ex.format === 'svg' || ex.format === 'drawio';
       const grid = h('div', { class: 'fmt-grid' });
       FORMATS.forEach((f) => grid.append(h('button', { class: 'fmt' + (ex.format === f.v ? ' active' : ''), onclick: () => { ex.format = f.v; saveSettings(); draw(); } }, ico(f.ic), h('b', null, T('fmt.' + f.v)), h('span', null, T('fmt.' + f.v + '.desc')))));
       body.append(grid);
 
       const nameIn = h('input', { class: 'input', value: safeName(), spellcheck: 'false' });
-      const ext = { png: '.png', svg: '.svg', mmd: '.mmd', txt: '.txt' }[ex.format];
+      const ext = EXT[ex.format];
 
       if (isImg) {
         if (!S.lastOk) body.append(h('div', { class: 'render-error', style: 'position:static;margin-bottom:12px' }, ico('critical'), T('exp.hasError')));
@@ -2477,13 +2498,13 @@
           const img = h('img', { alt: T('exp.preview'), src: URL.createObjectURL(new Blob([built.markup], { type: 'image/svg+xml' })) });
           prev.append(img);
           const sc = effectiveScale(built.w, built.h);
-          dim.textContent = ex.format === 'png' ? `${Math.round(built.w * sc)} × ${Math.round(built.h * sc)} px` : `${built.w} × ${built.h} (${T('exp.vector')})`;
+          dim.textContent = ex.format === 'png' ? `${Math.round(built.w * sc)} × ${Math.round(built.h * sc)} px` : ex.format === 'drawio' ? T('exp.drawioInfo') : `${built.w} × ${built.h} (${T('exp.vector')})`;
         } else prev.append(h('span', { class: 'dim-info' }, T('exp.nothing')));
         body.append(prev);
 
         const seg = (opts, val, on) => h('div', { class: 'seg' }, opts.map(([v, l]) => h('button', { class: v === val ? 'active' : '', onclick: () => { on(v); saveSettings(); draw(); } }, l)));
         if (ex.format === 'png') body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.scale')), seg([[1, '1×'], [2, '2×'], [3, '3×'], [4, '4×']], ex.scale, (v) => { ex.scale = v; })));
-        body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.bg')), seg([['theme', T('exp.bgTheme')], ['white', T('exp.bgWhite')], ['transparent', T('exp.bgTransparent')]], ex.bg, (v) => { ex.bg = v; })));
+        body.append(...bgOptionRows(ex, seg));
         body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.size')), dim));
       } else {
         body.append(h('pre', { class: 'export-code', style: 'margin:0 0 12px;max-height:260px;overflow:auto;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--code-bg);font:12px/1.55 var(--mono)' }, S.code));
@@ -2495,6 +2516,10 @@
         try {
           if (ex.format === 'mmd' || ex.format === 'txt') {
             downloadBlob(new Blob([S.code], { type: 'text/plain;charset=utf-8' }), fname);
+          } else if (ex.format === 'drawio') {
+            const src = $('.paper svg', el.canvas);
+            if (!src) return toast(T('exp.nothing'), 'err');
+            downloadBlob(new Blob([toDrawio(src, S.model, nameIn.value.trim() || safeName())], { type: 'application/vnd.jgraph.mxfile;charset=utf-8' }), fname);
           } else {
             const built = buildExportSvg(exportBg());
             if (!built) return toast(T('exp.nothing'), 'err');
@@ -2517,6 +2542,11 @@
             if (!built) return;
             await navigator.clipboard.writeText(built.markup);
             toast(T('exp.svgCopied'));
+          } else if (ex.format === 'drawio') {
+            const src = $('.paper svg', el.canvas);
+            if (!src) return;
+            await navigator.clipboard.writeText(toDrawio(src, S.model, safeName()));
+            toast(T('exp.drawioCopied'));
           } else {
             await navigator.clipboard.writeText(S.code);
             toast(T('exp.codeCopied'));
@@ -2578,7 +2608,7 @@
 
   /** Bir diyagramı ekran dışında çizer; önizlemedeki renklendirme aynen uygulanır. */
   let offscreenSeq = 0;
-  async function renderDocSvg(code) {
+  async function renderDocSvg(code, opts) {
     const model = M.parse(code);
     if (!model.participants.length && !model.items.length) throw new Error(T('exp.nothing'));
     const id = 'zx' + ++offscreenSeq;
@@ -2592,7 +2622,9 @@
       colorizeSvg(svgEl, S.settings.colorize, model);
       colorizeBlocks(svgEl, S.settings.colorize, model);
       colorizeMessages(svgEl, model);
-      return buildExportSvg(exportBg(), svgEl);
+      const built = buildExportSvg(exportBg(), svgEl);
+      if (built && opts && opts.drawio) built.drawio = toDrawio(svgEl, model, opts.drawio);
+      return built;
     } finally {
       host.remove();
       const stray = document.getElementById('d' + id);
@@ -2634,7 +2666,7 @@
       body.append(grid);
       const seg = (opts, val, on) => h('div', { class: 'seg' }, opts.map(([v, l]) => h('button', { class: v === val ? 'active' : '', onclick: () => { on(v); saveSettings(); draw(); } }, l)));
       if (ex.format === 'png') body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.scale')), seg([[1, '1×'], [2, '2×'], [3, '3×'], [4, '4×']], ex.scale, (v) => { ex.scale = v; })));
-      if (ex.format === 'png' || ex.format === 'svg') body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.bg')), seg([['theme', T('exp.bgTheme')], ['white', T('exp.bgWhite')], ['transparent', T('exp.bgTransparent')]], ex.bg, (v) => { ex.bg = v; })));
+      if (ex.format === 'png' || ex.format === 'svg' || ex.format === 'drawio') body.append(...bgOptionRows(ex, seg));
       if (hasSubs) {
         const cb = h('input', { type: 'checkbox' });
         cb.checked = withSubs;
@@ -2652,7 +2684,7 @@
         const entries = dirs.map((d) => ({ path: d + '/', dir: true }));
         const used = new Set();
         const failed = [];
-        const ext = { png: '.png', svg: '.svg', mmd: '.mmd', txt: '.txt' }[ex.format];
+        const ext = EXT[ex.format];
         try {
           for (let i = 0; i < docs.length; i++) {
             const { d, dir } = docs[i];
@@ -2666,10 +2698,10 @@
               let data;
               if (ex.format === 'mmd' || ex.format === 'txt') data = enc.encode(code);
               else {
-                const built = await renderDocSvg(code);
+                const built = await renderDocSvg(code, ex.format === 'drawio' ? { drawio: d.name } : null);
                 if (!built) throw new Error(T('exp.nothing'));
-                data = ex.format === 'svg'
-                  ? enc.encode(built.markup)
+                data = ex.format === 'drawio' ? enc.encode(built.drawio)
+                  : ex.format === 'svg' ? enc.encode(built.markup)
                   : new Uint8Array(await (await svgToPngBlob(built.markup, built.w, built.h, effectiveScale(built.w, built.h))).arrayBuffer());
               }
               entries.push({ path, data });
