@@ -30,12 +30,14 @@
         <span class="tb-sep"></span>
         <input id="docName" class="doc-name" spellcheck="false" data-i18n-ph="doc.untitled" />
         <span class="save-state" id="saveState" data-i18n-title="tb.savedTitle"><i data-icon="check"></i><span data-i18n="tb.saved"></span></span>
+        <button class="icon-btn sm" id="btnHistory" data-i18n-title="hist.btn"><i data-icon="history"></i></button>
       </div>
       <div class="tb-right">
         <div class="btn-group">
           <button class="icon-btn" id="btnUndo" data-i18n-title="tb.undo"><i data-icon="undo"></i></button>
           <button class="icon-btn" id="btnRedo" data-i18n-title="tb.redo"><i data-icon="redo"></i></button>
         </div>
+        <button class="icon-btn" id="btnSearch" data-i18n-title="search.title"><i data-icon="search"></i></button>
         <button class="btn ghost" id="btnTemplates"><i data-icon="layout"></i><span data-i18n="tb.templates"></span></button>
         <button class="btn ghost" id="btnImport"><i data-icon="upload"></i><span data-i18n="tb.import"></span></button>
         <button class="icon-btn" id="btnHelp" data-i18n-title="tb.help"><i data-icon="help"></i></button>
@@ -182,7 +184,10 @@
   <aside class="drawer" id="drawer" aria-hidden="true">
     <div class="drawer-head">
       <h2 data-i18n="tb.docs"></h2>
-      <button class="icon-btn" data-close><i data-icon="x"></i></button>
+      <div class="row" style="flex:none;gap:2px">
+        <button class="icon-btn" id="btnDrawerSearch" data-i18n-title="search.title"><i data-icon="search"></i></button>
+        <button class="icon-btn" data-close><i data-icon="x"></i></button>
+      </div>
     </div>
     <div class="drawer-actions">
       <button class="btn primary" id="btnNewDoc"><i data-icon="plus"></i><span data-i18n="drawer.new"></span></button>

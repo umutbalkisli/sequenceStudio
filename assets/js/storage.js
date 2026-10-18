@@ -13,7 +13,7 @@
   'use strict';
 
   const DB_NAME = 'sequence-studio';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2; // 2: diyagram sürüm geçmişi ("versions" deposu)
   const LS = { docs: 'seqstudio.docs', folders: 'seqstudio.folders', roles: 'seqstudio.roles', migrated: 'seqstudio.storage' };
   const LEGACY = (k) => k.replace('seqstudio.', 'seqstudio.legacy.');
 
@@ -32,6 +32,10 @@
         const db = r.result;
         if (!db.objectStoreNames.contains('docs')) db.createObjectStore('docs', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+        if (!db.objectStoreNames.contains('versions')) {
+          const vs = db.createObjectStore('versions', { keyPath: 'vid' });
+          vs.createIndex('docId', 'docId');
+        }
       };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
@@ -153,6 +157,65 @@
     });
   }
 
+  // ---- Sürüm geçmişi ----
+  // Kayıt: { vid, docId, ts, code, name, kind: 'auto' | 'manual' | 'restore', label? }
+  // IndexedDB yoksa localStorage'da diyagram başına az sayıda sürüm tutulur.
+  const LS_VERSIONS = 'seqstudio.versions';
+  const LOCAL_VERSION_CAP = 10;
+  const sortVersions = (a) => a.sort((x, y) => y.ts - x.ts);
+
+  async function listVersions(docId) {
+    if (mode !== 'idb') return sortVersions(((lsGet(LS_VERSIONS, {}) || {})[docId] || []).slice());
+    await chain;
+    const tx = db.transaction('versions', 'readonly');
+    return sortVersions(await req(tx.objectStore('versions').index('docId').getAll(docId)) || []);
+  }
+  /** Sürüm ekler; otomatik sürümlerden en yeni `keepAuto` tanesi tutulur (elle kaydedilenler silinmez). */
+  function addVersion(v, keepAuto) {
+    if (mode !== 'idb') {
+      const all = lsGet(LS_VERSIONS, {}) || {};
+      const list = sortVersions([v].concat(all[v.docId] || []));
+      let autos = 0;
+      all[v.docId] = list.filter((x) => x.kind !== 'auto' || ++autos <= Math.min(keepAuto, LOCAL_VERSION_CAP));
+      return lsSet(LS_VERSIONS, all) ? Promise.resolve(v) : Promise.reject(new Error('quota'));
+    }
+    return enqueue(async () => {
+      const tx = db.transaction('versions', 'readwrite');
+      const st = tx.objectStore('versions');
+      st.put(v);
+      const list = sortVersions(await req(st.index('docId').getAll(v.docId)) || []);
+      let autos = 0;
+      list.forEach((x) => { if (x.kind === 'auto' && ++autos > keepAuto) st.delete(x.vid); });
+      await done(tx);
+      return v;
+    });
+  }
+  function deleteVersion(vid, docId) {
+    if (mode !== 'idb') {
+      const all = lsGet(LS_VERSIONS, {}) || {};
+      all[docId] = (all[docId] || []).filter((x) => x.vid !== vid);
+      lsSet(LS_VERSIONS, all);
+      return Promise.resolve();
+    }
+    return enqueue(async () => { const tx = db.transaction('versions', 'readwrite'); tx.objectStore('versions').delete(vid); await done(tx); });
+  }
+  /** Diyagram silinince sürümleri de silinir. */
+  function deleteVersionsOf(docId) {
+    if (mode !== 'idb') {
+      const all = lsGet(LS_VERSIONS, {}) || {};
+      delete all[docId];
+      lsSet(LS_VERSIONS, all);
+      return Promise.resolve();
+    }
+    return enqueue(async () => {
+      const tx = db.transaction('versions', 'readwrite');
+      const st = tx.objectStore('versions');
+      const keys = await req(st.index('docId').getAllKeys(docId));
+      (keys || []).forEach((k) => st.delete(k));
+      await done(tx);
+    });
+  }
+
   /** Bekleyen tüm yazmaların bitmesini bekler. */
   const flush = () => chain;
 
@@ -194,5 +257,9 @@
     return false;
   }
 
-  window.SeqStorage = { init, saveDocs, saveKV, flush, estimate, requestPersist, get mode() { return mode; } };
+  window.SeqStorage = {
+    init, saveDocs, saveKV, flush, estimate, requestPersist,
+    listVersions, addVersion, deleteVersion, deleteVersionsOf,
+    get mode() { return mode; },
+  };
 })();

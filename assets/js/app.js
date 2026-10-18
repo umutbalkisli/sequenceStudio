@@ -305,6 +305,7 @@
     if (S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); }
     store.set(RESCUE_KEY, S.doc);
     persistDocs();
+    versionTick(true);
   }
   function applyRescue() {
     const r = store.get(RESCUE_KEY, null);
@@ -319,6 +320,7 @@
     if (!S.doc) return;
     if (S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); }
     persistDocs();
+    versionTick(false);
     el.saveState.classList.remove('dirty');
     el.saveState.lastChild.textContent = T('tb.saved');
   }, 500);
@@ -345,8 +347,10 @@
   }
   function openDoc(id) {
     if (S.doc && S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); }
+    versionTick(true); // önceki diyagramdan çıkarken son hâlini sürüm olarak sakla
     const d = S.docs.find((x) => x.id === id) || S.docs[0];
     S.doc = d;
+    beginVersionSession(d);
     S.selected = null;
     S.collapsed.clear();
     el.docName.value = d.name;
@@ -362,6 +366,7 @@
     const d = S.docs.find((x) => x.id === id);
     if (!d || !confirm(T('doc.confirmDelete', { name: d.name }))) return;
     S.docs = S.docs.filter((x) => x.id !== id);
+    window.SeqStorage.deleteVersionsOf(id).catch(storageError);
     if (!S.docs.length) createDoc(T('doc.untitled'), tplL(window.SeqTemplates[0]).code, false);
     if (S.doc.id === id) { S.doc = null; openDoc(S.docs[0].id); }
     persistDocs();
@@ -2732,6 +2737,352 @@
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Sürüm geçmişi (diyagram başına)
+  // Otomatik: oturumdaki ilk değişiklikten önceki hâl, düzenleme sürdükçe en fazla 10 dakikada bir,
+  // başka diyagrama geçerken ve sekme kapanırken. Değişiklik yoksa sürüm alınmaz.
+  // Otomatik sürümlerden son 50'si tutulur; elle kaydedilenler silinmez.
+  // ---------------------------------------------------------------------------
+  const VERSION_INTERVAL = 10 * 60 * 1000;
+  const KEEP_AUTO_VERSIONS = 50;
+  const ver = { docId: null, baseline: null, baselineTs: 0, editing: false, lastTs: 0, lastCode: null, loaded: false };
+  function beginVersionSession(d) {
+    Object.assign(ver, { docId: d.id, baseline: d.code, baselineTs: d.updated || Date.now(), editing: false, lastTs: 0, lastCode: null, loaded: false });
+    window.SeqStorage.listVersions(d.id).then((vs) => {
+      if (ver.docId !== d.id) return;
+      ver.loaded = true;
+      if (vs[0]) { ver.lastCode = vs[0].code; ver.lastTs = vs[0].ts; }
+    }).catch(() => { ver.loaded = true; });
+  }
+  function snapshot(kind, code, opts) {
+    if (!S.doc) return Promise.resolve(null);
+    opts = opts || {};
+    const v = { vid: 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), docId: S.doc.id, ts: opts.ts || Date.now(), code, name: S.doc.name, kind };
+    if (opts.label) v.label = opts.label;
+    ver.lastTs = Date.now();
+    ver.lastCode = code;
+    return window.SeqStorage.addVersion(v, KEEP_AUTO_VERSIONS).catch((e) => { storageError(e); return null; });
+  }
+  /** Kayıttan sonra çağrılır; force: diyagramdan çıkarken/kapanırken son hâli sakla. */
+  function versionTick(force) {
+    if (!S.doc || ver.docId !== S.doc.id || !ver.loaded) return;
+    const code = S.doc.code;
+    if (!ver.editing) {
+      if (code === ver.baseline) return;
+      // İlk değişiklik: düzenlemeye başlamadan önceki hâli (daha önce saklanmadıysa) sürüm yap
+      ver.editing = true;
+      if (ver.lastCode !== ver.baseline) snapshot('auto', ver.baseline, { ts: ver.baselineTs });
+      else ver.lastTs = Date.now();
+      return;
+    }
+    if (code === ver.lastCode) return;
+    if (force || Date.now() - ver.lastTs >= VERSION_INTERVAL) snapshot('auto', code);
+  }
+
+  /**
+   * Satır bazlı fark (LCS). Döner: [{ t: ' ' | '-' | '+', s }] (eski → yeni).
+   * Satırlar baş/son boşlukları yok sayılarak karşılaştırılır (girinti farkı anlamlı değişiklik değildir).
+   */
+  function lineDiff(a, b) {
+    const A = a.split('\n'), B = b.split('\n');
+    const KA = A.map((l) => l.trim()), KB = B.map((l) => l.trim());
+    const n = A.length, m = B.length;
+    if (n * m > 4e6) return A.map((s) => ({ t: '-', s })).concat(B.map((s) => ({ t: '+', s })));
+    const L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = KA[i] === KB[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    const out = [];
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (KA[i] === KB[j]) { out.push({ t: ' ', s: B[j] }); i++; j++; }
+      else if (L[i + 1][j] >= L[i][j + 1]) out.push({ t: '-', s: A[i++] });
+      else out.push({ t: '+', s: B[j++] });
+    }
+    while (i < n) out.push({ t: '-', s: A[i++] });
+    while (j < m) out.push({ t: '+', s: B[j++] });
+    return out;
+  }
+  const diffStat = (ops) => ({ add: ops.filter((o) => o.t === '+').length, del: ops.filter((o) => o.t === '-').length });
+
+  function openHistory() {
+    if (!S.doc) return;
+    if (el.code.value !== S.code) applyCode(el.code.value, 'code');
+    if (S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); persistDocs(); }
+    const doc = S.doc;
+    const fmtDate = (t) => new Date(t).toLocaleString(I18N.getLang() === 'tr' ? 'tr-TR' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' });
+    let versions = [], sel = null, tab = 'preview';
+    const imgCache = new Map(); // kod → çizilmiş SVG (blob URL)
+    const listEl = h('div', { class: 'hist-list' });
+    const detailEl = h('div', { class: 'hist-detail' });
+    const labelIn = h('input', { class: 'input', placeholder: T('hist.labelPh'), spellcheck: 'false' });
+    const saveBtn = h('button', { class: 'btn primary sm', onclick: () => {
+      snapshot('manual', S.code, { label: labelIn.value.trim() }).then(() => { labelIn.value = ''; toast(T('hist.saved')); load(); });
+    } }, ico('plus'), T('hist.save'));
+    labelIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveBtn.click(); } });
+
+    const renderImg = (code, box) => {
+      box.innerHTML = '';
+      box.append(h('span', { class: 'dim-info' }, '…'));
+      const show = (url) => { box.innerHTML = ''; box.append(url ? h('img', { src: url, alt: '' }) : h('span', { class: 'dim-info' }, T('hist.renderFail'))); };
+      if (imgCache.has(code)) return show(imgCache.get(code));
+      renderDocSvg(code).then((b) => {
+        const url = b ? URL.createObjectURL(new Blob([b.markup], { type: 'image/svg+xml' })) : null;
+        imgCache.set(code, url);
+        show(url);
+      }).catch(() => { imgCache.set(code, null); show(null); });
+    };
+    const drawList = () => {
+      listEl.innerHTML = '';
+      if (!versions.length) { listEl.append(h('p', { class: 'hist-empty' }, T('hist.empty'))); return; }
+      versions.forEach((v) => {
+        const st = diffStat(lineDiff(v.code, S.code));
+        const same = !st.add && !st.del;
+        const row = h('button', { class: 'hist-item' + (sel === v ? ' active' : ''), title: fmtDate(v.ts), onclick: () => { sel = v; drawList(); drawDetail(); } },
+          h('div', { class: 'hi-top' }, h('b', null, timeAgo(v.ts)), h('span', { class: 'hi-kind k-' + v.kind }, T('hist.kind.' + v.kind))),
+          v.label ? h('div', { class: 'hi-label' }, v.label) : null,
+          h('div', { class: 'hi-stat' + (same ? ' same' : '') }, same ? T('hist.same') : [h('span', { class: 'add' }, '+' + st.add), ' ', h('span', { class: 'del' }, '−' + st.del)]));
+        listEl.append(row);
+      });
+    };
+    const drawDetail = () => {
+      detailEl.innerHTML = '';
+      if (!sel) { detailEl.append(h('p', { class: 'hist-empty' }, T('hist.pick'))); return; }
+      const tabs = h('div', { class: 'seg' }, [['preview', T('hist.tabPreview')], ['diff', T('hist.tabDiff')]].map(([v, l]) =>
+        h('button', { class: tab === v ? 'active' : '', onclick: () => { tab = v; drawDetail(); } }, l)));
+      const meta = h('div', { class: 'hist-meta' }, h('b', null, fmtDate(sel.ts)), h('span', { class: 'hi-kind k-' + sel.kind }, T('hist.kind.' + sel.kind)), sel.label ? h('span', null, '· ' + sel.label) : null);
+      const content = h('div', { class: 'hist-content' });
+      if (tab === 'preview') {
+        const a = h('div', { class: 'hist-img' }), b = h('div', { class: 'hist-img' });
+        content.append(h('div', { class: 'hist-cmp' },
+          h('div', null, h('div', { class: 'hist-cap' }, T('hist.thisVersion')), a),
+          h('div', null, h('div', { class: 'hist-cap' }, T('hist.current')), b)));
+        renderImg(sel.code, a);
+        renderImg(S.code, b);
+      } else {
+        const ops = lineDiff(sel.code, S.code);
+        const pre = h('div', { class: 'hist-diff' });
+        if (!ops.some((o) => o.t !== ' ')) pre.append(h('div', { class: 'hd-same' }, T('hist.noDiff')));
+        // Değişmeyen uzun bölümleri katla (değişikliklerin çevresinde 2 satır bağlam)
+        const keep = ops.map((o, i) => o.t !== ' ' || ops.slice(Math.max(0, i - 2), i + 3).some((x) => x.t !== ' '));
+        for (let i = 0; i < ops.length; i++) {
+          if (!keep[i]) {
+            let j = i; while (j < ops.length && !keep[j]) j++;
+            pre.append(h('div', { class: 'hd-skip' }, T('hist.unchanged', { n: j - i })));
+            i = j - 1; continue;
+          }
+          const o = ops[i];
+          pre.append(h('div', { class: 'hd-line ' + (o.t === '+' ? 'add' : o.t === '-' ? 'del' : '') }, h('span', { class: 'hd-sign' }, o.t === ' ' ? '' : o.t === '-' ? '−' : '+'), o.s || ' '));
+        }
+        content.append(h('div', { class: 'hist-cap' }, T('hist.diffFrom')), pre);
+      }
+      const actions = h('div', { class: 'hist-actions' },
+        h('button', { class: 'btn ghost sm danger', onclick: () => {
+          if (!confirm(T('hist.confirmDelete'))) return;
+          window.SeqStorage.deleteVersion(sel.vid, doc.id).then(load);
+        } }, ico('trash'), T('hist.delete')),
+        h('div', { class: 'row', style: 'flex:none' },
+          h('button', { class: 'btn sm', onclick: () => {
+            const v = sel;
+            closeModal();
+            createDoc(doc.name + ' (' + fmtDate(v.ts) + ')', v.code, true, doc.folder);
+            toast(T('hist.copied'));
+          } }, ico('copy'), T('hist.copy')),
+          h('button', { class: 'btn primary sm', onclick: () => {
+            const v = sel;
+            if (S.code === v.code) return;
+            // Dönmeden önce şu anki hâli sakla: geri dönüş geri alınabilsin
+            snapshot('restore', S.code, { label: T('hist.beforeRestore') }).then(() => {
+              closeModal();
+              applyCode(v.code, 'code');
+              el.code.value = v.code;
+              flushHistory();
+              toast(T('hist.restored'));
+            });
+          } }, ico('undo'), T('hist.restore'))));
+      add(detailEl, h('div', { class: 'hist-dhead' }, meta, tabs), content, actions);
+    };
+    const load = () => window.SeqStorage.listVersions(doc.id).then((vs) => {
+      versions = vs;
+      sel = (sel && vs.find((v) => v.vid === sel.vid)) || vs[0] || null;
+      drawList(); drawDetail();
+    });
+    const body = h('div', { class: 'hist' },
+      h('div', { class: 'hist-top' }, labelIn, saveBtn),
+      h('div', { class: 'hist-main' }, listEl, detailEl),
+      h('p', { class: 'roles-note' }, ico('help'), T('hist.policy')));
+    openModal(T('hist.title', { name: doc.name }), body, true);
+    load();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Arama (⌘K): diyagram adı, klasör yolu, katılımcılar, mesaj/not metinleri, blok koşulları ve kod
+  // ---------------------------------------------------------------------------
+  const searchCache = new Map(); // doc id → { key, entry }
+  const folderPath = (id) => { const out = []; for (let f = folderById(id); f; f = folderById(f.parent)) out.unshift(f.name); return out.join(' / '); };
+  function searchEntry(d) {
+    const code = docCode(d);
+    const key = code.length + ':' + (d.updated || 0) + ':' + d.name + ':' + (d.folder || '') + ':' + S.folders.length;
+    const c = searchCache.get(d.id);
+    if (c && c.key === key && c.code === code) return c.entry;
+    const m = M.parse(code);
+    const items = [];
+    m.participants.forEach((p, idx) => items.push({ kind: 'participant', text: oneLine(p.label || p.id) + (p.label && p.label !== p.id ? ' (' + p.id + ')' : ''), idx }));
+    let mi = 0, ni = 0, bi = 0;
+    M.walk(m.items, (it) => {
+      if (it.kind === 'message') items.push({ kind: 'message', text: oneLine(it.text), idx: mi++, ctx: it.from + ' → ' + it.to });
+      else if (it.kind === 'note') items.push({ kind: 'note', text: oneLine(it.text), idx: ni++ });
+      else if (it.kind === 'block') { const i = bi++; it.branches.forEach((br) => { if (br.label && it.type !== 'rect') items.push({ kind: 'block', text: oneLine(br.label), idx: i, ctx: it.type }); }); }
+    });
+    items.forEach((x) => { x.n = norm(x.text); });
+    const path = folderPath(d.folder);
+    const entry = { d, path, nName: norm(d.name), nPath: norm(path), nCode: norm(code), items };
+    searchCache.set(d.id, { key, code, entry });
+    return entry;
+  }
+  const KIND_WEIGHT = { participant: 10, block: 6, message: 5, note: 5 };
+  function runSearch(q) {
+    const toks = norm(q).split(/\s+/).filter(Boolean);
+    if (!toks.length) return [...S.docs].sort((a, b) => b.updated - a.updated).slice(0, 8).map((d) => ({ e: searchEntry(d), hits: [], score: 0 }));
+    const res = [];
+    S.docs.forEach((d) => {
+      const e = searchEntry(d);
+      let score = 0;
+      for (const t of toks) {
+        let best = 0;
+        if (e.nName.includes(t)) best = e.nName.startsWith(t) ? 30 : 20;
+        if (!best && e.nPath.includes(t)) best = 8;
+        if (!best) for (const it of e.items) if (it.n.includes(t)) best = Math.max(best, KIND_WEIGHT[it.kind] || 3);
+        if (!best && e.nCode.includes(t)) best = 1;
+        if (!best) return; // tüm kelimeler eşleşmeli
+        score += best;
+      }
+      const order = { message: 0, note: 1, block: 2, participant: 3 };
+      const hits = e.items.filter((it) => toks.some((t) => it.n.includes(t))).sort((a, b) => order[a.kind] - order[b.kind]).slice(0, 3);
+      res.push({ e, hits, score });
+    });
+    return res.sort((a, b) => b.score - a.score || (b.e.d.updated || 0) - (a.e.d.updated || 0)).slice(0, 50);
+  }
+  /** Eşleşen kelimeleri vurgular (normalize uzunluğu değişmediyse) */
+  function hl(text, toks) {
+    const n = norm(text);
+    if (!toks.length || n.length !== text.length) return text;
+    const marks = new Array(text.length).fill(false);
+    toks.forEach((t) => { let i = n.indexOf(t); while (i >= 0) { for (let k = i; k < i + t.length; k++) marks[k] = true; i = n.indexOf(t, i + 1); } });
+    const out = []; let i = 0;
+    while (i < text.length) {
+      let j = i; while (j < text.length && marks[j] === marks[i]) j++;
+      out.push(marks[i] ? h('mark', null, text.slice(i, j)) : text.slice(i, j));
+      i = j;
+    }
+    return out;
+  }
+  /** Diyagramı açınca eşleşen adımı builder'da seç ve göster */
+  function jumpTo(hit) {
+    if (!hit) return;
+    if (currentView() !== 'builder') return jumpToCodeLine(hit);
+    if (hit.kind === 'participant') {
+      const p = S.model.participants[hit.idx];
+      const card = p && el.participants.querySelector(`[data-uid="${p.uid}"]`);
+      if (card) { card.scrollIntoView({ block: 'nearest' }); card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash'); }
+      return;
+    }
+    let c = { message: 0, note: 0, block: 0 }, target = null;
+    M.walk(S.model.items, (it) => {
+      if (target) return false;
+      if (it.kind === hit.kind && c[it.kind]++ === hit.idx) target = it;
+    });
+    if (target) { setSelected(target.uid); focusRow(target.uid); const row = el.flow.querySelector(`[data-uid="${target.uid}"]`); if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); } }
+  }
+  /** Kod görünümünde: eşleşen mesaj/not/katılımcı satırını seç ve görünür yap */
+  function jumpToCodeLine(hit) {
+    let target = null;
+    if (hit.kind === 'participant') {
+      const p = S.model.participants[hit.idx];
+      if (p) { const i = S.code.split('\n').findIndex((l) => new RegExp('^\\s*(participant|actor)\\s+' + p.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(l)); if (i >= 0) target = i; }
+    } else {
+      const c = { message: 0, note: 0, block: 0 };
+      M.walk(S.model.items, (it) => { if (target != null) return false; if (it.kind === hit.kind && c[it.kind]++ === hit.idx && it.line != null) target = it.line; });
+    }
+    if (target == null) return;
+    const lines = el.code.value.split('\n');
+    const start = lines.slice(0, target).reduce((a, l) => a + l.length + 1, 0);
+    el.code.focus({ preventScroll: true });
+    el.code.setSelectionRange(start, start + (lines[target] || '').length);
+    const lh = parseFloat(getComputedStyle(el.code).lineHeight) || 21;
+    el.code.scrollTop = Math.max(0, target * lh - el.code.clientHeight / 3);
+    el.code.dispatchEvent(new Event('scroll'));
+  }
+  let searchUi = null;
+  function closeSearch() { if (searchUi) { searchUi.root.hidden = true; } }
+  function openSearch() {
+    closeDrawer();
+    if (!searchUi) {
+      const input = h('input', { class: 'search-input', spellcheck: 'false', autocomplete: 'off' });
+      const list = h('div', { class: 'search-results', role: 'listbox' });
+      const foot = h('div', { class: 'search-foot' });
+      const panel = h('div', { class: 'search-panel' }, h('div', { class: 'search-row' }, ico('search'), input, h('kbd', null, 'Esc')), list, foot);
+      const root = h('div', { class: 'search-root', hidden: true }, panel);
+      root.addEventListener('pointerdown', (e) => { if (e.target === root) closeSearch(); });
+      document.body.append(root);
+      searchUi = { root, input, list, foot, results: [], rows: [], active: 0 };
+      const go = (r, hit) => {
+        closeSearch();
+        if (!S.doc || S.doc.id !== r.e.d.id) openDoc(r.e.d.id);
+        requestAnimationFrame(() => jumpTo(hit || r.hits[0]));
+      };
+      const mark = () => {
+        searchUi.rows.forEach((x, i) => x.classList.toggle('active', i === searchUi.active));
+        const a = searchUi.rows[searchUi.active];
+        if (a) a.scrollIntoView({ block: 'nearest' });
+      };
+      const draw = () => {
+        const q = input.value.trim();
+        const toks = norm(q).split(/\s+/).filter(Boolean);
+        const results = runSearch(q);
+        searchUi.results = results;
+        searchUi.active = 0;
+        list.innerHTML = '';
+        if (!q) list.append(h('div', { class: 'search-sec' }, T('search.recent')));
+        if (!results.length) list.append(h('div', { class: 'search-none' }, T('search.none')));
+        searchUi.rows = results.map((r, i) => {
+          const row = h('div', { class: 'search-item', role: 'option' },
+            h('span', { class: 'si-icon' }, ico('logo')),
+            h('div', { class: 'si-body' },
+              h('div', { class: 'si-name' }, hl(r.e.d.name, toks), r.e.path ? h('span', { class: 'si-path' }, ico('folder'), r.e.path) : null),
+              r.hits.map((it) => {
+                const sn = h('div', { class: 'si-hit' }, h('span', { class: 'si-kind' }, T('search.kind.' + it.kind)), h('span', { class: 'si-text' }, hl(it.text, toks)), it.ctx ? h('span', { class: 'si-ctx' }, it.ctx) : null);
+                sn.addEventListener('click', (e) => { e.stopPropagation(); go(r, it); });
+                return sn;
+              }),
+              !r.hits.length && q && !r.e.nName.includes(toks[0]) && !r.e.nPath.includes(toks[0]) ? h('div', { class: 'si-hit' }, h('span', { class: 'si-kind' }, T('search.kind.code'))) : null),
+            h('span', { class: 'si-time' }, timeAgo(r.e.d.updated)));
+          row.addEventListener('click', () => go(r));
+          row.addEventListener('pointermove', () => { if (searchUi.active !== i) { searchUi.active = i; mark(); } });
+          list.append(row);
+          return row;
+        });
+        foot.textContent = (q ? T('search.count', { n: results.length }) + ' · ' : '') + T('search.hint');
+        mark();
+      };
+      input.addEventListener('input', draw);
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'ArrowDown') { e.preventDefault(); searchUi.active = Math.min(searchUi.rows.length - 1, searchUi.active + 1); mark(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); searchUi.active = Math.max(0, searchUi.active - 1); mark(); }
+        else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); const r = searchUi.results[searchUi.active]; if (r) go(r); }
+        else if (e.key === 'Escape') { e.preventDefault(); closeSearch(); }
+        else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); closeSearch(); }
+      });
+      searchUi.draw = draw;
+    }
+    // Açık diyagramın son hâli aranabilsin
+    if (S.doc && el.code.value !== S.code) applyCode(el.code.value, 'code');
+    searchUi.input.placeholder = T('search.ph');
+    searchUi.root.hidden = false;
+    searchUi.input.value = '';
+    searchUi.draw();
+    searchUi.input.focus();
+  }
+
   // --- Klasör dışa aktarma (.zip) ---
   /** Sıkıştırmasız (store) ZIP; UTF-8 dosya adları. Harici kütüphane gerektirmez. */
   const CRC_TABLE = (() => {
@@ -3069,6 +3420,7 @@
             [kb('Alt+↑') + ' ' + kb('Alt+↓'), T('help.k.move')],
             [kb('Del'), T('help.k.del')],
             [kb(mod + '+E'), T('help.k.export')],
+            [kb(mod + '+K'), T('help.k.search')],
             [kb(mod + '+1') + ' / ' + kb(mod + '+2'), T('help.k.views')],
             [kb(mod + '+B'), T('help.k.collapse')],
             [kb('F'), T('help.k.fullscreen')],
@@ -3146,6 +3498,9 @@
   $('#btnHelp').addEventListener('click', openHelp);
   $('#btnExport').addEventListener('click', openExport);
   $('#btnDocs').addEventListener('click', openDrawer);
+  $('#btnHistory').addEventListener('click', openHistory);
+  $('#btnSearch').addEventListener('click', openSearch);
+  $('#btnDrawerSearch').addEventListener('click', openSearch);
   $('#btnNewDoc').addEventListener('click', () => { createDoc(T('doc.untitled'), tplL(window.SeqTemplates[0]).code); closeDrawer(); });
   $('#btnNewFolder').addEventListener('click', createFolder);
   // Boş alana bırakılan belge köke taşınır; dışarı tıklama taşıma menüsünü kapatır
@@ -3337,6 +3692,7 @@
       if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo(); return; }
       if (k === 's') { e.preventDefault(); flushHistory(); doSave(); toast(T('saved.toast')); return; }
       if (k === 'e') { e.preventDefault(); openExport(); return; }
+      if (k === 'k') { e.preventDefault(); if (searchUi && !searchUi.root.hidden) closeSearch(); else openSearch(); return; }
       if (k === '1') { e.preventDefault(); setView('builder'); return; }
       if (k === '2') { e.preventDefault(); setView('code'); return; }
       if (k === 'b') { e.preventDefault(); setEditorCollapsed(!S.settings.editorCollapsed); return; }
