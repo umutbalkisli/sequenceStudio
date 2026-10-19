@@ -4,7 +4,7 @@
  */
 (function (Seq) {
   'use strict';
-  const { M, S, T, el, toast } = Seq.core;
+  const { M, S, T, el, events, toast } = Seq.core;
 
   // ---------------------------------------------------------------------------
   // Çekirdek: kod <-> model akışı
@@ -21,6 +21,7 @@
     Seq.preview.scheduleRender();
     Seq.docs.scheduleSave();
     if (src !== 'history' && src !== 'load') scheduleHistory();
+    events.emit('code:changed', { src });
   }
 
   /** Builder modeli değiştirdikten sonra çağrılır. */

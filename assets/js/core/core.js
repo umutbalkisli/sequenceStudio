@@ -187,12 +187,10 @@
   const norm = (s) => String(s || '').toLocaleLowerCase('tr').replace(/ı/g, 'i').normalize('NFD').replace(/[̀-ͯ]/g, '');
 
   // ---------------------------------------------------------------------------
-  // Modal
-  // ---------------------------------------------------------------------------
-  // ---------------------------------------------------------------------------
   // Olay yolu: modüller birbirini doğrudan çağırmak yerine yaşam döngüsü olaylarını dinler.
   // Olaylar (yük): doc:leaving {doc} · doc:opened {doc} · doc:saved {doc} · doc:deleted {id}
-  //                · doc:renamed {id, from, to} · docs:persisted · roles:changed
+  //                · doc:renamed {id, from, to} · docs:persisted
+  //                · code:changed {src} (kod/model değişti) · builder:rendered (adım listesi yeniden çizildi)
   // ---------------------------------------------------------------------------
   const listeners = new Map();
   const events = {
@@ -205,6 +203,9 @@
     emit(name, payload) { (listeners.get(name) || []).slice().forEach((fn) => fn(payload || {})); },
   };
 
+  // ---------------------------------------------------------------------------
+  // Modal
+  // ---------------------------------------------------------------------------
   function openModal(title, body, wide) {
     el.modalTitle.textContent = title;
     el.modalBody.innerHTML = '';

@@ -36,6 +36,7 @@
             [T('help.tone'), T('help.toned')],
             [T('help.goto'), T('help.gotod')],
             [T('help.ref'), T('help.refd')],
+            [T('help.lint'), T('help.lintd')],
           ])}
           <h4 style="margin-top:18px">${T('help.shortcuts')}</h4>
           ${rows([

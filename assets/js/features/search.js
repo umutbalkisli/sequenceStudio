@@ -84,7 +84,7 @@
       if (target) return false;
       if (it.kind === hit.kind && c[it.kind]++ === hit.idx) target = it;
     });
-    if (target) { Seq.flow.setSelected(target.uid); Seq.flow.focusRow(target.uid); const row = el.flow.querySelector(`[data-uid="${target.uid}"]`); if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); } }
+    if (target) Seq.flow.reveal(target.uid);
   }
   /** Kod görünümünde: eşleşen mesaj/not/katılımcı satırını seç (selectCodeLine ile) */
   function jumpToCodeLine(hit) {

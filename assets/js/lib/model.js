@@ -229,7 +229,7 @@
 
       if ((m = line.match(ACT_RE))) {
         ensureParticipant(m[2]);
-        const a = { uid: uid(), kind: 'activation', action: m[1].toLowerCase(), participant: m[2].trim() };
+        const a = { uid: uid(), line: i, kind: 'activation', action: m[1].toLowerCase(), participant: m[2].trim() };
         if (autoHere) { a.auto = true; autoNext = true; }
         push(a);
         continue;
@@ -237,7 +237,7 @@
 
       if ((m = line.match(BLOCK_RE))) {
         let type = m[1].toLowerCase();
-        const block = { uid: uid(), kind: 'block', type, branches: [{ uid: uid(), label: decodeText(m[2].trim()), items: [] }] };
+        const block = { uid: uid(), line: i, kind: 'block', type, branches: [{ uid: uid(), line: i, label: decodeText(m[2].trim()), items: [] }] };
         if (pendingColor) { block.color = pendingColor; pendingColor = null; }
         push(block);
         stack.push({ node: block, list: block.branches[0].items });
@@ -246,7 +246,7 @@
 
       if ((m = line.match(BRANCH_RE)) && top.node) {
         const block = top.node;
-        const br = { uid: uid(), label: decodeText(m[2].trim()), items: [] };
+        const br = { uid: uid(), line: i, label: decodeText(m[2].trim()), items: [] };
         block.branches.push(br);
         top.list = br.items;
         continue;
@@ -288,9 +288,9 @@
       let p = pMap.get(id);
       if (p) {
         // Daha önce örtük eklenmişse güncelle
-        Object.assign(p, { label, type, boxId, implicit: false });
+        Object.assign(p, { label, type, boxId, implicit: false, line: i });
       } else {
-        p = { uid: uid(), id, label, type, boxId, implicit: false };
+        p = { uid: uid(), line: i, id, label, type, boxId, implicit: false };
         pMap.set(id, p);
         model.participants.push(p);
       }

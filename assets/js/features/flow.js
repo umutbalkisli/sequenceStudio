@@ -5,7 +5,7 @@
  */
 (function (Seq) {
   'use strict';
-  const { $$, I18N, M, S, T, TONE_COLORS, add, debounce, el, fitTextarea, h, ico, multiline, oneLine, participantById, toast } = Seq.core;
+  const { $$, I18N, M, S, T, TONE_COLORS, add, debounce, el, events, fitTextarea, h, ico, multiline, oneLine, participantById, toast } = Seq.core;
 
   // ---------------------------------------------------------------------------
   // Akış adımları
@@ -94,6 +94,34 @@
     });
   }
 
+  /**
+   * Adımı (ya da blok kolunu) görünür kılar: daraltılmış ata blokları açar, seçer, ortalar ve kısaca vurgular.
+   * focusText: adımın metin alanına odaklan.
+   */
+  function reveal(uid, opts) {
+    let changed = false;
+    const path = [];
+    const visit = (items) => items.some((it) => {
+      if (it.uid === uid) return true;
+      if (it.kind !== 'block') return false;
+      path.push(it);
+      if (it.branches.some((br) => br.uid === uid || visit(br.items))) return true;
+      path.pop();
+      return false;
+    });
+    if (!visit(S.model.items)) return false;
+    path.forEach((b) => { if (S.collapsed.has(b.uid)) { S.collapsed.delete(b.uid); changed = true; } });
+    if (changed) renderBuilder();
+    setSelected(uid);
+    const row = el.flow.querySelector(`[data-uid="${uid}"], [data-branch="${uid}"]`);
+    if (!row) return false;
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
+    const inp = opts && opts.focusText && row.querySelector('.text-input');
+    if (inp) setTimeout(() => inp.focus({ preventScroll: true }), 250);
+    return true;
+  }
+
   function setSelected(id) {
     S.selected = id;
     $$('.step.selected, .empty-list.selected, .branch.selected', el.flow).forEach((x) => x.classList.remove('selected'));
@@ -137,6 +165,7 @@
     M.walk(S.model.items, (it) => { if (!it.auto) steps++; });
     el.stepCount.textContent = steps;
     if (S.selected) setSelected(S.selected);
+    events.emit('builder:rendered');
   }
 
   function renderList(items, listId, counter) {
@@ -573,5 +602,5 @@
     });
   }
 
-  Seq.flow = { init, addMessageFrom, addStep, deleteNode, duplicateNode, endDrag, focusRow, insertNode, moveNodeBy, renderBuilder, setSelected, startDrag };
+  Seq.flow = { init, addMessageFrom, addStep, deleteNode, duplicateNode, endDrag, focusRow, insertNode, moveNodeBy, renderBuilder, reveal, setSelected, startDrag };
 })(window.Seq = window.Seq || {});

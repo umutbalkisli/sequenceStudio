@@ -148,27 +148,7 @@
     }
     const nodes = [];
     M.walk(S.model.items, (it) => { if (it.kind === kind) nodes.push(it); });
-    const n = nodes[idx];
-    if (!n) return;
-    // Daraltılmış ataları aç
-    let changed = false;
-    M.walk(S.model.items, (it) => {
-      if (it.kind === 'block' && S.collapsed.has(it.uid) && containsNode(it, n.uid)) { S.collapsed.delete(it.uid); changed = true; }
-    });
-    if (changed) Seq.flow.renderBuilder();
-    Seq.flow.setSelected(n.uid);
-    const row = el.flow.querySelector(`[data-uid="${n.uid}"]`);
-    if (row) {
-      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
-      const inp = row.querySelector('.text-input');
-      if (inp) setTimeout(() => inp.focus({ preventScroll: true }), 250);
-    }
-  }
-  function containsNode(block, nodeUid) {
-    let found = false;
-    for (const br of block.branches) M.walk(br.items, (it) => { if (it.uid === nodeUid) { found = true; return false; } });
-    return found;
+    if (nodes[idx]) Seq.flow.reveal(nodes[idx].uid, { focusText: true });
   }
 
   /** Bir diyagramı ekran dışında çizer; önizlemedeki renklendirme aynen uygulanır. */

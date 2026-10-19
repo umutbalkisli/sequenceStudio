@@ -13,6 +13,7 @@ assets/css/                styles
 assets/js/
   lib/                     pure logic with no DOM state; usable from Node (unit tests)
     model.js               Mermaid ⇄ model parser/serializer, auto activation, refs expansion  → window.SeqModel
+    lint.js                diagram check rules                                                 → window.SeqLint
     drawio.js              rendered SVG → draw.io XML                                          → window.SeqDrawio
     zip.js                 minimal ZIP writer                                                   → Seq.zip
   core/                    shared infrastructure
@@ -73,6 +74,8 @@ The document lifecycle is published as events, so `docs.js` doesn't need to know
 | `doc:deleted`    | `{ id }`           | a diagram was deleted                         | drawer, refs, versions |
 | `doc:renamed`    | `{ id, from, to }` | the active diagram's name changed             | refs |
 | `docs:persisted` | none               | the workspace was written to storage          | backup |
+| `code:changed`   | `{ src }`          | the code/model changed (any source)           | lint |
+| `builder:rendered` | none             | the builder's step list was redrawn           | lint |
 
 `events.on(name, fn)` returns an unsubscribe function.
 
@@ -116,6 +119,22 @@ asks it for new nodes. The label key is `step.<id>`.
 Steps are drawn in the builder by `flow.js`, which dispatches on the *model* node kind (`message`,
 `note`, `activation`, `block`, `raw`). A brand-new node kind also needs parser/serializer support in
 `lib/model.js`.
+
+### Diagram check rules (`SeqLint.register`)
+
+`lib/lint.js` holds the rules. They are pure functions of the model, so they are unit tested in Node:
+
+```js
+SeqLint.register({
+  id: 'myRule', level: 'warning',            // 'error' | 'warning' | 'info'
+  check(model, ctx, report) {                // ctx: { docExists(id), selfId }
+    // report(uid, params) for each finding; uid = step, branch or participant
+  },
+});
+```
+
+`features/lint.js` runs the rules when the diagram changes, shows the badge and list, and marks the
+affected steps. Add the message `lint.<id>` to `core/i18n.js` (params are filled in as `{p}`, `{from}`, `{to}`).
 
 ### Keyboard shortcuts (`features/shortcuts.js`)
 

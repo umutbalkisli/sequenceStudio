@@ -27,6 +27,7 @@ Mermaid is a good format for keeping diagrams next to code, but writing larger s
 - **Automatic activation bars:** Each synchronous call is paired with its reply, and the period during which a participant is active is drawn for you. Early returns inside conditional blocks do not end the activation.
 - **Links between diagrams:** A note can point to another diagram. Click it in the preview to open that diagram, and use the back button to return. Broken links are marked, and renaming a diagram updates the links to it. When exporting, linked diagrams can be drawn inline (recursively, with cycle detection).
 - **Role legend:** The preview can show which roles and arrow tones are used. Exported code carries its role definitions, so another workspace can import roles it does not have yet.
+- **Diagram check:** A badge in the preview header lists likely mistakes: broken links, unanswered calls, unused or duplicate participants, empty blocks, activations Mermaid can't draw. The affected steps are marked in the builder, and clicking a finding jumps to the step (or to the code line).
 - **Code editor:** Syntax highlighting, line numbers, inline error reporting and automatic indentation.
 - **Live preview**
   - Participants are drawn in the same colors as in the editor.
