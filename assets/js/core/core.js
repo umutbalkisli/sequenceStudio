@@ -204,6 +204,38 @@
   };
 
   // ---------------------------------------------------------------------------
+  // Açılır panel: bir düğmenin altında açılır; dışarı tıklama, Escape ve pencere boyutu değişimi kapatır.
+  // render(panel) içeriği çizer. Döner: { el, refresh(), close() }
+  // ---------------------------------------------------------------------------
+  function dropdown(anchor, render, opts) {
+    opts = opts || {};
+    const panel = h('div', { class: 'dropdown' + (opts.class ? ' ' + opts.class : ''), role: 'dialog', 'aria-label': opts.label || null });
+    const place = () => {
+      const r = anchor.getBoundingClientRect();
+      panel.style.top = Math.round(r.bottom + 6) + 'px';
+      panel.style.left = Math.round(clamp(r.left, 8, window.innerWidth - panel.offsetWidth - 8)) + 'px';
+    };
+    const onDown = (e) => { if (!panel.contains(e.target) && !anchor.contains(e.target)) close(); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    const dd = { el: panel, refresh, close };
+    function refresh() { panel.innerHTML = ''; render(panel, dd); place(); }
+    function close() {
+      if (!panel.isConnected) return;
+      panel.remove();
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('resize', close);
+      if (opts.onClose) opts.onClose();
+    }
+    document.body.append(panel);
+    refresh();
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey, true); // Escape başka katmanları kapatmadan önce
+    window.addEventListener('resize', close);
+    return dd;
+  }
+
+  // ---------------------------------------------------------------------------
   // Modal
   // ---------------------------------------------------------------------------
   function openModal(title, body, wide) {
@@ -224,5 +256,5 @@
     $('[data-close]', el.modalRoot).addEventListener('click', closeModal);
   }
 
-  Seq.core = { init, events, $, $$, DEFAULT_SETTINGS, I18N, LS, M, PCOLORS, S, T, TONE_COLORS, add, clamp, closeModal, colorOf, debounce, docCode, downloadBlob, el, esc, fileSafe, fitTextarea, h, hexToRgb, hydrate, ico, icon, isMac, mix, multiline, norm, oneLine, openModal, participantById, saveSettings, store, timeAgo, toast, tplL };
+  Seq.core = { init, events, $, $$, DEFAULT_SETTINGS, I18N, LS, M, PCOLORS, S, T, TONE_COLORS, add, clamp, closeModal, colorOf, debounce, docCode, downloadBlob, dropdown, el, esc, fileSafe, fitTextarea, h, hexToRgb, hydrate, ico, icon, isMac, mix, multiline, norm, oneLine, openModal, participantById, saveSettings, store, timeAgo, toast, tplL };
 })(window.Seq = window.Seq || {});

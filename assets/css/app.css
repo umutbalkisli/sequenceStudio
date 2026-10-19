@@ -1050,16 +1050,18 @@ kbd { box-shadow: 0 1px 0 var(--border-strong); }
 .rr-note { margin: 2px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
 
 /* ---------- Diyagram denetimi ---------- */
-.lint-badge {
+/* Küçük sayaçlı düğme (denetim rozeti, geri bağlantılar) */
+.pill-btn {
   --c: var(--muted);
-  display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px 0 6px; margin-left: 6px;
+  display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px 0 6px; margin-left: 6px; flex: none;
   border-radius: 999px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
   background: color-mix(in srgb, var(--c) 12%, var(--panel)); color: var(--c);
   font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; cursor: pointer;
 }
-.lint-badge[hidden] { display: none; }
-.lint-badge .ic { width: 14px; height: 14px; }
-.lint-badge:hover { background: color-mix(in srgb, var(--c) 20%, var(--panel)); }
+.pill-btn[hidden] { display: none; }
+.pill-btn .ic { width: 14px; height: 14px; }
+.pill-btn:hover { background: color-mix(in srgb, var(--c) 20%, var(--panel)); }
+.pill-btn.ref { --c: var(--c-ref); margin-left: 2px; }
 .lv-error { --c: var(--danger); }
 .lv-warning { --c: var(--warn); }
 .lv-info { --c: var(--muted); }
@@ -1074,20 +1076,27 @@ kbd { box-shadow: 0 1px 0 var(--border-strong); }
 }
 .lint-dot .ic { width: 11px; height: 11px; }
 
-.lint-panel {
-  position: fixed; z-index: 60; width: 370px; max-width: calc(100vw - 16px); max-height: min(420px, 60vh); overflow: auto;
+/* Açılır panel (core.dropdown) */
+.dropdown {
+  position: fixed; z-index: 60; width: 340px; max-width: calc(100vw - 16px); max-height: min(420px, 60vh); overflow: auto;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg);
   padding: 6px; animation: pop .16s var(--ease);
 }
-.lp-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 8px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
-.lp-head b { font-size: 13px; }
-.lp-sum { flex: 1; font-size: 12px; color: var(--muted); }
-.lint-panel ul { list-style: none; margin: 0; padding: 0; }
-.lp-item {
+.dd-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 8px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.dd-head b { font-size: 13px; }
+.dd-sum { flex: 1; font-size: 12px; color: var(--muted); }
+.dropdown ul { list-style: none; margin: 0; padding: 0; }
+.dd-item {
   width: 100%; display: flex; align-items: flex-start; gap: 8px; padding: 7px 8px; border: 0; border-radius: 8px;
   background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 12.5px; line-height: 1.4; cursor: pointer;
 }
-.lp-item:hover, .lp-item:focus-visible { background: var(--panel-3); }
-.lp-item .ic { width: 15px; height: 15px; flex: none; margin-top: 1px; color: var(--c); }
-.lp-empty { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 8px; font-size: 12.5px; color: var(--ok); }
-.lp-empty .ic { width: 16px; height: 16px; }
+.dd-item:hover, .dd-item:focus-visible { background: var(--panel-3); }
+.dd-item > .ic { width: 15px; height: 15px; flex: none; margin-top: 1px; color: var(--c, var(--muted)); }
+.dd-empty { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 8px; font-size: 12.5px; color: var(--muted); }
+.dd-empty.ok { color: var(--ok); }
+.dd-empty .ic { width: 16px; height: 16px; }
+.lint-panel { width: 370px; }
+.bl-item > .ic { color: var(--c-ref); }
+.bl-text { display: flex; flex-direction: column; min-width: 0; }
+.bl-text b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-text small { font-size: 11.5px; color: var(--muted); }

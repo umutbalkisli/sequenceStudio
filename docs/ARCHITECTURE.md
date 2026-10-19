@@ -55,6 +55,8 @@ Rules:
   `INIT_ORDER`.
 - **Talk through the public object.** Whatever is on `Seq.<name>` is the module's API. Everything else
   is private to the file.
+- **Shared UI pieces** live in `core.js`: `h` (element builder), `ico`, `toast`, `openModal`, and
+  `dropdown(anchor, render, opts)` for small popup lists (used by the lint and backlinks badges).
 - **One reason to change.** If a file starts covering two concerns, split it. Shared helpers go to
   `core.js`. Pure logic that doesn't need the DOM goes to `lib/`, where it can be unit tested.
 
@@ -68,12 +70,12 @@ The document lifecycle is published as events, so `docs.js` doesn't need to know
 
 | Event            | Payload            | Emitted when                                  | Listeners |
 |------------------|--------------------|-----------------------------------------------|-----------|
-| `doc:opened`     | `{ doc }`          | a diagram became the active one               | drawer, refs, roles, versions |
+| `doc:opened`     | `{ doc }`          | a diagram became the active one               | backlinks, drawer, refs, roles, versions |
 | `doc:leaving`    | `{ doc }`          | before switching away / closing the page      | versions |
 | `doc:saved`      | `{ doc }`          | the active diagram was saved                  | versions |
-| `doc:deleted`    | `{ id }`           | a diagram was deleted                         | drawer, refs, versions |
+| `doc:deleted`    | `{ id }`           | a diagram was deleted                         | backlinks, drawer, lint, refs, versions |
 | `doc:renamed`    | `{ id, from, to }` | the active diagram's name changed             | refs |
-| `docs:persisted` | none               | the workspace was written to storage          | backup |
+| `docs:persisted` | none               | the workspace was written to storage          | backlinks, backup |
 | `code:changed`   | `{ src }`          | the code/model changed (any source)           | lint |
 | `builder:rendered` | none             | the builder's step list was redrawn           | lint |
 

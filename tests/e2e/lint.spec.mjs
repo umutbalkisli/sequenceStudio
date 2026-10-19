@@ -23,7 +23,7 @@ test('rozet ve liste bulguları gösterir; tıklayınca adım seçilir; düzelti
   await expect(page.locator('#participants .pcard.lint-flag')).toHaveCount(1);
 
   await badge.click();
-  const items = page.locator('.lint-panel .lp-item');
+  const items = page.locator('.lint-panel .dd-item');
   await expect(items).toHaveCount(4);
   await expect(items.first()).toContainText('silinmiş');
   await items.nth(1).click(); // yanıtsız çağrı
@@ -37,11 +37,42 @@ test('rozet ve liste bulguları gösterir; tıklayınca adım seçilir; düzelti
   // Kod görünümünde listeden tıklama ilgili satırı seçer
   await setView(page, 'code');
   await badge.click();
-  await page.locator('.lint-panel .lp-item', { hasText: 'Kullanılmayan' }).click();
+  await page.locator('.lint-panel .dd-item', { hasText: 'Kullanılmayan' }).click();
   const selected = await page.locator('#code').evaluate((t) => t.value.slice(t.selectionStart, t.selectionEnd));
   expect(selected).toContain('participant C as Kullanılmayan');
 
   // Düzeltince bulgular kaybolur
   await page.locator('#code').fill(seq('participant A\nparticipant B\nA->>B: istek\nB-->>A: yanıt\n'));
   await expect(badge).toBeHidden();
+});
+
+test('geri bağlantılar: rozet yalnızca bağlanan varsa görünür; listeden açılır, not seçilir, geri dönülür', async ({ context }) => {
+  const linkTo = (id, label) => `%% @ref ${id}\nNote over A: ${label}\n`;
+  await seed(context, {
+    docs: [
+      doc('t', 'Ödeme', seq('participant P\nP->>P: öde\n')),
+      doc('a', 'Sepet', seq('participant A\nA->>A: x\n' + linkTo('t', 'Ödeme') + 'A->>A: y\n' + linkTo('t', 'Ödeme tekrar'))),
+      doc('b', 'Checkout', seq('participant A\n' + linkTo('t', 'Ödeme'))),
+      doc('c', 'Bağımsız', seq('participant A\nA->>A: z\n')),
+    ],
+    current: 't',
+  });
+  const page = await openApp(context);
+  const btn = page.locator('#btnBacklinks');
+  await expect(btn).toHaveText('2');
+  await btn.click();
+  const items = page.locator('.dropdown .bl-item');
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toContainText('Checkout');
+  await expect(items.nth(1)).toContainText('Sepet');
+  await expect(items.nth(1)).toContainText('2 bağlantı');
+
+  await items.nth(1).click();
+  await expect(page.locator('#docName')).toHaveValue('Sepet');
+  await expect(page.locator('.dropdown')).toHaveCount(0);
+  await expect(page.locator('#flow .step.selected')).toHaveClass(/step-ref/);
+  await expect(btn).toBeHidden(); // Sepet'e kimse bağlanmıyor
+  await page.click('#navBack');
+  await expect(page.locator('#docName')).toHaveValue('Ödeme');
+  await expect(btn).toHaveText('2');
 });

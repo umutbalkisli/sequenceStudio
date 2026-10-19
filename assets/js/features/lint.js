@@ -6,7 +6,7 @@
  */
 (function (Seq) {
   'use strict';
-  const { $, $$, M, S, T, debounce, el, events, h, ico, oneLine, participantById } = Seq.core;
+  const { $, $$, M, S, T, debounce, dropdown, el, events, h, ico, oneLine, participantById } = Seq.core;
 
   let issues = [];
   let panel = null;
@@ -22,7 +22,7 @@
     });
     updateBadge();
     decorate();
-    if (panel) renderPanel();
+    if (panel) panel.refresh();
   }
   const scheduleRun = debounce(run, 250);
 
@@ -45,7 +45,7 @@
     if (!b) return;
     b.hidden = !issues.length;
     if (!issues.length) return;
-    b.className = 'lint-badge lv-' + topLevel(issues);
+    b.className = 'pill-btn lv-' + topLevel(issues);
     b.lastChild.textContent = issues.length;
     b.title = T('lint.badgeTitle', { n: issues.length });
   }
@@ -66,26 +66,19 @@
   }
 
   // --- Sorun listesi ---
-  function togglePanel() { if (panel) closePanel(); else openPanel(); }
-  function openPanel() {
-    panel = h('div', { class: 'lint-panel', role: 'dialog', 'aria-label': T('lint.title') });
-    document.body.append(panel);
-    renderPanel();
+  function togglePanel() {
+    if (panel) return panel.close();
+    panel = dropdown(badge(), renderPanel, { class: 'lint-panel', label: T('lint.title'), onClose: () => { panel = null; } });
   }
-  function closePanel() { if (panel) { panel.remove(); panel = null; } }
-  function renderPanel() {
-    const r = badge().getBoundingClientRect();
-    panel.style.top = Math.round(r.bottom + 6) + 'px';
-    panel.style.left = Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 380))) + 'px';
-    panel.innerHTML = '';
+  function renderPanel(box) {
     const counts = window.SeqLint.LEVELS.map((l) => [l, issues.filter((x) => x.level === l).length]).filter(([, n]) => n);
-    panel.append(h('div', { class: 'lp-head' },
+    box.append(h('div', { class: 'dd-head' },
       h('b', null, T('lint.title')),
-      h('span', { class: 'lp-sum' }, counts.map(([l, n]) => T('lint.count.' + l, { n })).join(' · ')),
-      h('button', { class: 'icon-btn sm', title: T('lint.close'), onclick: closePanel }, ico('x'))));
-    if (!issues.length) { panel.append(h('p', { class: 'lp-empty' }, ico('check'), T('lint.none'))); return; }
-    panel.append(h('ul', null, issues.map((x) => h('li', null,
-      h('button', { class: 'lp-item lv-' + x.level, onclick: () => goTo(x) }, ico(LEVEL_ICON[x.level]), h('span', null, describe(x)))))));
+      h('span', { class: 'dd-sum' }, counts.map(([l, n]) => T('lint.count.' + l, { n })).join(' · ')),
+      h('button', { class: 'icon-btn sm', title: T('common.close'), onclick: () => panel.close() }, ico('x'))));
+    if (!issues.length) { box.append(h('p', { class: 'dd-empty ok' }, ico('check'), T('lint.none'))); return; }
+    box.append(h('ul', null, issues.map((x) => h('li', null,
+      h('button', { class: 'dd-item lv-' + x.level, onclick: () => goTo(x) }, ico(LEVEL_ICON[x.level]), h('span', null, describe(x)))))));
   }
 
   /** Bulgunun kaynağını gösterir: kod görünümünde satırı seçer, oluşturucuda adımı/katılımcıyı */
@@ -122,10 +115,6 @@
     events.on('code:changed', scheduleRun);
     events.on('builder:rendered', run);
     events.on('doc:deleted', run);
-    // Liste dışına tıklama ya da Escape kapatır (Escape başka katmanı kapatmadan önce)
-    document.addEventListener('pointerdown', (e) => { if (panel && !panel.contains(e.target) && !badge().contains(e.target)) closePanel(); });
-    document.addEventListener('keydown', (e) => { if (panel && e.key === 'Escape') { e.stopPropagation(); closePanel(); } }, true);
-    window.addEventListener('resize', closePanel);
   }
 
   Seq.lint = { init, issues: () => issues.slice(), run };

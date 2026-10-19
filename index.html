@@ -31,6 +31,7 @@
         <input id="docName" class="doc-name" spellcheck="false" data-i18n-ph="doc.untitled" />
         <span class="save-state" id="saveState" data-i18n-title="tb.savedTitle"><i data-icon="check"></i><span data-i18n="tb.saved"></span></span>
         <button class="icon-btn sm" id="btnHistory" data-i18n-title="hist.btn"><i data-icon="history"></i></button>
+        <button class="pill-btn ref" id="btnBacklinks" hidden><i data-icon="link"></i><span></span></button>
       </div>
       <div class="tb-right">
         <div class="btn-group">
@@ -142,7 +143,7 @@
           <div class="ph-left">
             <button class="icon-btn" id="btnExpand" data-i18n-title="editor.expand"><i data-icon="panelOpen"></i></button>
             <div class="ph-title"><i data-icon="eye"></i><span data-i18n="preview"></span></div>
-            <button class="lint-badge" id="lintBadge" hidden><i data-icon="critical"></i><span></span></button>
+            <button class="pill-btn" id="lintBadge" hidden><i data-icon="critical"></i><span></span></button>
           </div>
           <div class="pane-head-right">
             <select id="mmTheme" class="select sm" data-i18n-title="mm.theme">
@@ -247,6 +248,7 @@
   <script src="assets/js/features/legend.js"></script>
   <script src="assets/js/features/refs.js"></script>
   <script src="assets/js/features/lint.js"></script>
+  <script src="assets/js/features/backlinks.js"></script>
   <script src="assets/js/features/code-editor.js"></script>
   <script src="assets/js/features/layout.js"></script>
   <script src="assets/js/features/palette.js"></script>
