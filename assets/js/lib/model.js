@@ -149,7 +149,7 @@
     for (; i < lines.length; i++) {
       const rawLine = lines[i];
       const line = rawLine.trim();
-      if (!line) continue;
+      if (!line) { autoNext = false; continue; } // boş satır "%% @auto" grubunu sonlandırır
       const top = stack[stack.length - 1];
       const push = (item) => top.list.push(item);
 
@@ -374,6 +374,8 @@
         }
         case 'activation':
           if (it.auto && !(prev && prev.kind === 'activation' && prev.auto)) out.push(ind + '%% @auto');
+          // Elle yazılmış aktivasyon otomatik grubun hemen arkasındaysa boş satırla ayır (aksi hâlde gruba katılır)
+          if (!it.auto && prev && prev.kind === 'activation' && prev.auto) out.push('');
           out.push(ind + it.action + ' ' + it.participant);
           break;
         case 'block': {

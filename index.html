@@ -225,12 +225,41 @@
   <input type="file" id="fileInput" accept=".mmd,.mermaid,.txt,.md" hidden />
 
   <script src="vendor/mermaid/mermaid.min.js"></script>
-  <script src="assets/js/i18n.js"></script>
-  <script src="assets/js/model.js"></script>
-  <script src="assets/js/templates.js"></script>
-  <script src="assets/js/icons.js"></script>
-  <script src="assets/js/drawio.js"></script>
-  <script src="assets/js/storage.js"></script>
-  <script src="assets/js/app.js"></script>
+  <!-- Saf mantık ve altyapı (uygulama durumuna bağımlı değil) -->
+  <script src="assets/js/core/i18n.js"></script>
+  <script src="assets/js/lib/model.js"></script>
+  <script src="assets/js/lib/drawio.js"></script>
+  <script src="assets/js/lib/zip.js"></script>
+  <script src="assets/js/data/templates.js"></script>
+  <script src="assets/js/core/icons.js"></script>
+  <script src="assets/js/core/storage.js"></script>
+  <!-- Çekirdek: paylaşılan durum ve DOM yardımcıları -->
+  <script src="assets/js/core/core.js"></script>
+  <!-- Özellik modülleri (yüklenirken birbirine dokunmazlar; main.js hepsini başlatır) -->
+  <script src="assets/js/features/theme.js"></script>
+  <script src="assets/js/features/editor.js"></script>
+  <script src="assets/js/features/docs.js"></script>
+  <script src="assets/js/features/drawer.js"></script>
+  <script src="assets/js/features/preview.js"></script>
+  <script src="assets/js/features/colors.js"></script>
+  <script src="assets/js/features/legend.js"></script>
+  <script src="assets/js/features/refs.js"></script>
+  <script src="assets/js/features/code-editor.js"></script>
+  <script src="assets/js/features/layout.js"></script>
+  <script src="assets/js/features/palette.js"></script>
+  <script src="assets/js/features/participants.js"></script>
+  <script src="assets/js/features/participant-picker.js"></script>
+  <script src="assets/js/features/roles.js"></script>
+  <script src="assets/js/features/steps.js"></script>
+  <script src="assets/js/features/flow.js"></script>
+  <script src="assets/js/features/share.js"></script>
+  <script src="assets/js/features/export.js"></script>
+  <script src="assets/js/features/folder-export.js"></script>
+  <script src="assets/js/features/backup.js"></script>
+  <script src="assets/js/features/versions.js"></script>
+  <script src="assets/js/features/search.js"></script>
+  <script src="assets/js/features/help.js"></script>
+  <script src="assets/js/features/shortcuts.js"></script>
+  <script src="assets/js/main.js"></script>
 </body>
 </html>

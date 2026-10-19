@@ -18,19 +18,31 @@ Mermaid is a good format for keeping diagrams next to code, but writing larger s
 
 - **Visual builder**
   - Participant types: participant, actor, boundary, control, entity, database, collections, queue.
-  - Create a message by dragging one participant's connector onto another.
+  - **Roles:** reusable participant presets (for example *Service* or *Queue*) with a type, color and optional name prefix/suffix.
+  - Create a message by dragging one participant's connector onto another, or by picking participants from a searchable list.
   - Drag and drop to reorder steps and to move them into or out of blocks.
+  - Custom colors for participants and blocks, and arrow tones (success, error, warning, info).
+  - Multi-line labels (<kbd>Alt</kbd>+<kbd>Enter</kbd>), written to Mermaid as `<br/>`.
 - **Control flow:** `loop`, `alt`/`else`, `opt`, `par`/`and`, `critical`/`option`, `break`, highlighted regions, notes, participant groups (`box`) and automatic numbering.
 - **Automatic activation bars:** Each synchronous call is paired with its reply, and the period during which a participant is active is drawn for you. Early returns inside conditional blocks do not end the activation.
+- **Links between diagrams:** A note can point to another diagram. Click it in the preview to open that diagram, and use the back button to return. Broken links are marked, and renaming a diagram updates the links to it. When exporting, linked diagrams can be drawn inline (recursively, with cycle detection).
+- **Role legend:** The preview can show which roles and arrow tones are used. Exported code carries its role definitions, so another workspace can import roles it does not have yet.
 - **Code editor:** Syntax highlighting, line numbers, inline error reporting and automatic indentation.
 - **Live preview**
   - Participants are drawn in the same colors as in the editor.
   - Zoom, pan and full-screen mode; the editor panel can be hidden.
   - Clicking a message in the preview jumps to that step in the editor.
-- **Export:** PNG (up to 4×, themed, white or transparent background), SVG, Mermaid source (`.mmd`) and plain text. Images and code can also be copied to the clipboard.
+- **Export**
+  - PNG (up to 4×), SVG, Mermaid source (`.mmd`), plain text and **draw.io** (editable shapes, with labels attached to their shapes and arrows).
+  - Theme, white or transparent background.
+  - Export a whole folder, including subfolders, as one ZIP in any of these formats.
+  - Images and code can also be copied to the clipboard.
 - **Sharing:** A share link stores the compressed diagram in the URL itself, so no server is involved.
 - **Workspace**
-  - Multiple diagrams with autosave.
+  - Multiple diagrams with autosave, organized in folders and subfolders (drag and drop).
+  - Search across all diagrams, participants and messages (<kbd>⌘/Ctrl</kbd>+<kbd>K</kbd>).
+  - Per-diagram version history: automatic and named versions, with a preview and line diff, and one-click restore.
+  - Backup and restore of the whole workspace.
   - Templates for common flows (OAuth2, e-commerce checkout, event-driven messaging).
   - Import from `.mmd`, `.txt` or Markdown files.
   - Undo/redo, light and dark themes, and an English or Turkish interface.
@@ -49,3 +61,14 @@ Press the **?** button in the app for a quick guide and a list of keyboard short
 
 - [Mermaid](https://mermaid.js.org/) v11, bundled under `vendor/mermaid/` and distributed under the MIT License.
 - Plain HTML, CSS and JavaScript, with no frameworks and no runtime dependencies.
+
+## Development
+
+The app itself needs no tooling. Node.js is used only for the lint and test suite:
+
+```sh
+npm ci && npx playwright install chromium
+npm test   # lint + unit tests + end-to-end tests
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is organized.
