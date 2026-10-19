@@ -12,13 +12,14 @@ Mermaid is a good format for keeping diagrams next to code, but writing larger s
 
 - **Draw instead of type.** Add participants, connect them to create messages, and drag steps into loops and conditional blocks.
 - **Keep the text.** The visual editor and the Mermaid code stay in sync in both directions. You can switch between them at any time.
-- **Own your data.** Diagrams are stored in your browser (IndexedDB). Nothing leaves your machine unless you export or share it. Use **Back up** in the *My diagrams* menu to download the whole workspace — diagrams, folders, roles and settings — as one file, and **Restore** to bring it back (merge or replace).
+- **Own your data.** Diagrams are stored in your browser (IndexedDB). Nothing leaves your machine unless you export or share it. Use **Back up** in the *My diagrams* menu to download the whole workspace — diagrams, folders, the catalog, roles and settings — as one file, and **Restore** to bring it back (merge or replace).
 
 ## Features
 
 - **Visual builder**
   - Participant types: participant, actor, boundary, control, entity, database, collections, queue.
-  - **Roles:** reusable participant presets (for example *Service* or *Queue*) with a type, color and optional name prefix/suffix.
+  - **Roles:** how a participant looks — shape, color and optional name prefix/suffix (for example *Service* adds " Service"). Click a role in the palette to add a new participant of that kind.
+  - **Catalog:** the hierarchy of your real systems, like the C4 model (for example *Payments system › Ledger › Ledger DB*). Every item has a role. Search and add items with the **Catalog** button in the palette, or save any participant with **Save to catalog**. Renaming an item or changing its role updates every diagram that uses it, and each item shows where it is used. A parent can be a participant too: draw a system as one box in one diagram and its parts in another.
   - Create a message by dragging one participant's connector onto another, or by picking participants from a searchable list.
   - Drag and drop to reorder steps and to move them into or out of blocks.
   - Custom colors for participants and blocks, and arrow tones (success, error, warning, info).
@@ -26,7 +27,7 @@ Mermaid is a good format for keeping diagrams next to code, but writing larger s
 - **Control flow:** `loop`, `alt`/`else`, `opt`, `par`/`and`, `critical`/`option`, `break`, highlighted regions, notes, participant groups (`box`) and automatic numbering.
 - **Automatic activation bars:** Each synchronous call is paired with its reply, and the period during which a participant is active is drawn for you. Early returns inside conditional blocks do not end the activation.
 - **Links between diagrams:** A note can point to another diagram. Click it in the preview to open that diagram, and use the back button to return. Broken links are marked, and renaming a diagram updates the links to it. A small badge next to the diagram name lists the diagrams that link to it (backlinks). When exporting, linked diagrams can be drawn inline (recursively, with cycle detection).
-- **Role legend:** The preview can show which roles and arrow tones are used. Exported code carries its role definitions, so another workspace can import roles it does not have yet.
+- **Role legend:** The preview can show which roles and arrow tones are used. Exported code carries the role and catalog definitions it uses (with parent items), so another workspace can import what it does not have yet.
 - **Diagram check:** A badge in the preview header lists likely mistakes: broken links, unanswered calls, unused or duplicate participants, empty blocks, activations Mermaid can't draw. The affected steps are marked in the builder, and clicking a finding jumps to the step (or to the code line).
 - **Code editor:** Syntax highlighting, line numbers, inline error reporting and automatic indentation.
 - **Live preview**

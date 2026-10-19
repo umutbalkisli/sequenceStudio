@@ -80,6 +80,10 @@
   const REF_RE = /^%%\s*@ref\s+([A-Za-z0-9_-]+)\s*$/;
   // Rol tanımı (paylaşılan/dışa aktarılan kodda taşınır; alıcı rolü kütüphanesine ekleyebilsin)
   const ROLEDEF_RE = /^%%\s*@roledef\s+([A-Za-z0-9_-]+)\s+(\{.*\})\s*$/;
+  // Katalog öğesi (C4 tarzı hiyerarşideki somut katılımcı): "%% @item id" bir sonraki katılımcıya bağlanır;
+  // "%% @itemdef id {json}" öğenin tanımını taşır (başka çalışma alanına içe alınabilsin diye)
+  const ITEM_RE = /^%%\s*@item\s+([A-Za-z0-9_-]+)\s*$/;
+  const ITEMDEF_RE = /^%%\s*@itemdef\s+([A-Za-z0-9_-]+)\s+(\{.*\})\s*$/;
 
   // Satır sonları modelde "\n", Mermaid'de <br/> olarak tutulur (<br>, <br/>, <br /> okunur)
   const BR_RE = /<br\s*\/?>/gi;
@@ -142,6 +146,7 @@
     let messageSeen = false;
     let pendingColor = null;
     let pendingRole = null;
+    let pendingItem = null;
     let pendingTone = null;
     let pendingRef = null;
     let autoNext = false;
@@ -163,19 +168,25 @@
       let m;
       const colorM = line.match(COLOR_RE);
       const roleM = line.match(ROLE_RE);
-      if (colorM || roleM) {
+      const itemM = line.match(ITEM_RE);
+      if (colorM || roleM || itemM) {
         // Hedef: boş ve diğer yönerge satırlarından sonraki ilk satır
         let j = i + 1;
-        while (j < lines.length && (!lines[j].trim() || COLOR_RE.test(lines[j].trim()) || ROLE_RE.test(lines[j].trim()))) j++;
+        while (j < lines.length && (!lines[j].trim() || COLOR_RE.test(lines[j].trim()) || ROLE_RE.test(lines[j].trim()) || ITEM_RE.test(lines[j].trim()))) j++;
         const nextLine = j < lines.length ? lines[j].trim() : '';
         const next = nextLine.match(BLOCK_RE);
         const isPart = PART_RE.test(nextLine);
         if (colorM && (isPart || (next && next[1].toLowerCase() !== 'rect' && !box))) { pendingColor = colorM[1].toLowerCase(); continue; }
         if (roleM && isPart) { pendingRole = roleM[1]; continue; }
+        if (itemM && isPart) { pendingItem = itemM[1]; continue; }
       }
       const rdM = line.match(ROLEDEF_RE);
       if (rdM) {
         try { (model.roleDefs = model.roleDefs || {})[rdM[1]] = JSON.parse(rdM[2]); continue; } catch (e) { /* bozuksa ham satır olarak kalsın */ }
+      }
+      const idM = line.match(ITEMDEF_RE);
+      if (idM) {
+        try { (model.itemDefs = model.itemDefs || {})[idM[1]] = JSON.parse(idM[2]); continue; } catch (e) { /* bozuksa ham satır olarak kalsın */ }
       }
       const refM = line.match(REF_RE);
       if (refM) {
@@ -276,7 +287,8 @@
     function addParticipant(m, boxId) {
       const color = pendingColor;
       const role = pendingRole;
-      pendingColor = pendingRole = null;
+      const item = pendingItem;
+      pendingColor = pendingRole = pendingItem = null;
       const keyword = m[1].toLowerCase();
       const id = m[2].trim();
       let type = keyword === 'actor' ? 'actor' : 'participant';
@@ -296,6 +308,7 @@
       }
       if (color) p.color = color;
       if (role) p.role = role;
+      if (item) p.item = item;
     }
 
     // Kullanılmayan boş box'ları temizle
@@ -309,6 +322,7 @@
 
   function participantDirectives(p) {
     const out = [];
+    if (p.item) out.push('%% @item ' + p.item);
     if (p.role) out.push('%% @role ' + p.role);
     if (p.color) out.push('%% @color ' + p.color);
     return out;
@@ -327,6 +341,7 @@
     if (model.frontmatter) out.push(model.frontmatter);
     out.push('sequenceDiagram');
     if (model.roleDefs) Object.keys(model.roleDefs).forEach((id) => out.push(IND + '%% @roledef ' + id + ' ' + JSON.stringify(model.roleDefs[id])));
+    if (model.itemDefs) Object.keys(model.itemDefs).forEach((id) => out.push(IND + '%% @itemdef ' + id + ' ' + JSON.stringify(model.itemDefs[id])));
     if (model.title) out.push(IND + 'title ' + model.title);
     if (model.autonumber) out.push(IND + ('autonumber ' + (model.autonumberArgs || '')).trim());
 
@@ -502,7 +517,8 @@
       // Bağlı katılımcı bir box içindeyse yeni katılımcılar box'ı bölmesin: box'ın sonuna eklenir
       if (anchor && anchor.boxId) { while (at < host.participants.length && host.participants[at].boxId === anchor.boxId) at++; }
       sub.participants.forEach((sp) => {
-        const hp = host.participants.find((h) => sp.role && h.role === sp.role && key(h.label) === key(sp.label))
+        const hp = host.participants.find((h) => sp.item && h.item === sp.item)
+          || host.participants.find((h) => sp.role && h.role === sp.role && key(h.label) === key(sp.label))
           || host.participants.find((h) => h.id === sp.id && key(h.label) === key(sp.label))
           || host.participants.find((h) => key(h.label) === key(sp.label));
         if (hp) { map[sp.id] = hp.id; return; }

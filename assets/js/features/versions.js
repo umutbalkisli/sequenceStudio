@@ -177,7 +177,7 @@
     const body = h('div', { class: 'hist' },
       h('div', { class: 'hist-top' }, labelIn, saveBtn),
       h('div', { class: 'hist-main' }, listEl, detailEl),
-      h('p', { class: 'roles-note' }, ico('help'), T('hist.policy')));
+      h('p', { class: 'note-line' }, ico('help'), T('hist.policy')));
     openModal(T('hist.title', { name: doc.name }), body, true);
     load();
   }

@@ -4,7 +4,7 @@
  */
 (function (Seq) {
   'use strict';
-  const { $, $$, M, PCOLORS, S, T, add, clamp, colorOf, el, h, ico, multiline } = Seq.core;
+  const { $, $$, M, PCOLORS, S, T, add, clamp, colorOf, el, h, ico, multiline, toast } = Seq.core;
 
   // ---------------------------------------------------------------------------
   // Katılımcılar
@@ -16,7 +16,14 @@
     return id;
   }
 
-  function addParticipant(type, index, roleId) {
+  function addParticipant(type, index, roleId, itemId) {
+    const x = Seq.catalog.itemById(itemId);
+    if (x) {
+      // Aynı katalog öğesi diyagramda zaten varsa yenisi eklenmez, mevcut kart gösterilir
+      const had = S.model.participants.find((q) => q.item === x.id);
+      if (had) { revealCard(had.uid); toast(T('cat.alreadyIn', { name: had.label })); return had; }
+      roleId = x.role;
+    }
     const r = Seq.roles.roleById(roleId);
     // Ekli rollerde çekirdek "Yeni" olur (Yeni Service → yazınca Order Service); eksizse rolün adı
     const core = r ? (r.prefix || r.suffix ? T('role.newBase') : r.name) : T('newp.' + type);
@@ -26,13 +33,25 @@
     const lbl = Seq.roles.composeLabel(r, base);
     const p = { uid: M.uid(), id: uniqueId(lbl), label: lbl, type: r ? r.type : type, boxId: null, implicit: false, autoId: true };
     if (r) { p.role = r.id; p.color = r.color; }
+    if (x) Seq.catalog.applyItem(p, x);
     S.model.participants.forEach((q) => { q.implicit = false; });
     if (index == null || index > S.model.participants.length) S.model.participants.push(p);
     else S.model.participants.splice(index, 0, p);
     Seq.editor.commit();
     const card = el.participants.querySelector(`[data-uid="${p.uid}"]`);
-    if (card) openParticipantEditor(p, card, true);
+    // Katalog öğesinin adı hazırdır; düzenleyici açılmaz, kart vurgulanır
+    if (x) revealCard(p.uid);
+    else if (card) openParticipantEditor(p, card, true);
     return p;
+  }
+
+  /** Katılımcı kartını görünür kılar ve kısaca vurgular */
+  function revealCard(uid) {
+    const card = el.participants.querySelector(`.pcard[data-uid="${uid}"]`);
+    if (!card) return false;
+    card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
+    return true;
   }
 
   function renderParticipants() {
@@ -200,7 +219,7 @@
       b.addEventListener('click', () => {
         touch(); p.type = t.v;
         const hadRole = !!p.role;
-        delete p.role; // elle değişiklik → rol bağlantısı kopar
+        delete p.role; delete p.item; // elle değişiklik → rol ve katalog bağlantısı kopar
         $$('.type-opt', typeGrid).forEach((x) => x.classList.remove('active'));
         b.classList.add('active');
         Seq.editor.commit();
@@ -257,7 +276,7 @@
         touch();
         if (c) p.color = c; else delete p.color;
         const hadRole = !!p.role;
-        delete p.role; // elle değişiklik → rol bağlantısı kopar
+        delete p.role; delete p.item; // elle değişiklik → rol ve katalog bağlantısı kopar
         Seq.editor.commit();
         Seq.editor.flushHistory();
         if (hadRole) reopen(); else fillColors();
@@ -274,8 +293,23 @@
     };
     fillColors();
 
-    // Rol seçimi
-    const roleChips = h('div', { class: 'role-pick' },
+    // Katalog: bağlıysa yol + değiştir/kaldır; değilse katalogdan seç / kataloğa kaydet
+    const item = Seq.catalog.itemById(p.item);
+    const relink = (x) => { Seq.catalog.applyItem(p, x); Seq.editor.commit(); Seq.editor.flushHistory(); reopen(); };
+    const pickBtn = h('button', { class: 'rp-edit' }, ico('layers'), T(item ? 'cat.change' : 'cat.pick'));
+    pickBtn.addEventListener('click', () => Seq.catalog.openPicker(pickBtn, { onPick: relink, title: T('cat.pickTitle') }));
+    const itemField = h('div', { class: 'role-pick' },
+      item ? h('span', { class: 'rp-chip active cat-path', style: `--c:${p.color || 'var(--accent)'}`, title: item.desc || null }, ico('layers'), Seq.catalog.pathLabel(item.id)) : null,
+      p.item && !item ? h('span', { class: 'rp-chip active unknown', title: T('cat.unknown') }, '@' + p.item) : null,
+      pickBtn,
+      p.item ? h('button', { class: 'rp-edit', title: T('cat.unlinkTitle'), onclick: () => { delete p.item; Seq.editor.commit(); Seq.editor.flushHistory(); reopen(); } }, ico('x'), T('cat.unlink'))
+        : h('button', { class: 'rp-edit', title: T('cat.saveFromTitle'), onclick: () => Seq.catalog.openSaveDialog(p) }, ico('plus'), T('cat.saveFrom')),
+      item && item.desc ? h('small', { class: 'cat-desc-line' }, item.desc) : null);
+
+    // Rol seçimi (katalog öğesine bağlıysa rol öğeden gelir, burada değiştirilmez)
+    const roleChips = item ? h('div', { class: 'role-pick' },
+      role ? h('span', { class: 'rp-chip active', style: `--c:${role.color}` }, ico('t-' + role.type), role.name) : null,
+      h('small', { class: 'cat-desc-line' }, T('cat.roleFromItem'))) : h('div', { class: 'role-pick' },
       h('button', { class: 'rp-chip' + (!p.role ? ' active' : ''), onclick: () => {
         if (!p.role) return;
         delete p.role; // görünüm ve ad olduğu gibi kalır
@@ -296,6 +330,7 @@
     pop.append(
       h('div', { class: 'pop-title' }, T('pe.title'), h('button', { class: 'icon-btn sm', onclick: closePopover }, ico('x'))),
       h('div', { class: 'field' }, h('label', null, T('pe.label')), labelField),
+      h('div', { class: 'field' }, h('label', null, T('pe.catalog')), itemField),
       h('div', { class: 'field' }, h('label', null, T('pe.role')), roleChips),
       h('div', { class: 'field' }, h('label', null, T('pe.id')), idIn, idHint),
       custom,
@@ -390,7 +425,7 @@
       const { i } = pDropIndex(e);
       const d = S.drag;
       clearPMarker();
-      if (d.kind === 'newPart') { addParticipant(d.type, i, d.role); return; }
+      if (d.kind === 'newPart') { addParticipant(d.type, i, d.role, d.item); return; }
       if (d.kind === 'part') {
         const arr = S.model.participants;
         const from = arr.findIndex((p) => p.uid === d.uid);
@@ -408,5 +443,5 @@
     });
   }
 
-  Seq.participants = { init, addParticipant, clearPMarker, closePopover, renameRefs, renderParticipants, uniqueId };
+  Seq.participants = { init, addParticipant, clearPMarker, closePopover, renameRefs, renderParticipants, revealCard, uniqueId };
 })(window.Seq = window.Seq || {});

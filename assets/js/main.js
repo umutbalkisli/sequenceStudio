@@ -40,6 +40,7 @@
     S.docs = data.docs;
     S.folders = data.folders || [];
     S.roles = data.roles;
+    S.catalog = data.catalog || [];
     Seq.docs.applyRescue();
     if (!S.settings.firstUse) { S.settings.firstUse = Date.now(); saveSettings(); }
     if (data.migrated && data.migrated.count) toast(T('storage.migrated', { n: data.migrated.count }));
@@ -65,7 +66,7 @@
    * Modüllerin olay bağlamaları bu sırayla yapılır (önce çekirdek ve tema, en son klavye kısayolları).
    * Modüller yüklenirken birbirine dokunmaz; tüm bağlantılar burada, her şey yüklendikten sonra kurulur.
    */
-  const INIT_ORDER = ['core', 'theme', 'drawer', 'preview', 'colors', 'legend', 'code', 'layout', 'roles', 'participants', 'flow', 'share',
+  const INIT_ORDER = ['core', 'theme', 'drawer', 'preview', 'colors', 'legend', 'code', 'layout', 'roles', 'catalog', 'defsNotice', 'participants', 'flow', 'share',
     'editor', 'help', 'export', 'versions', 'search', 'docs', 'refs', 'lint', 'backlinks', 'backup', 'palette', 'shortcuts'];
 
   function start() {

@@ -53,7 +53,8 @@ test('kayıt beklemesi dolmadan kapatılsa da son değişiklik kaybolmaz', async
 });
 
 test('yedek alınır; birleştir ve değiştir doğru çalışır, geçersiz dosya reddedilir', async ({ context }) => {
-  await seed(context, { docs: legacy['seqstudio.docs'], folders: legacy['seqstudio.folders'], roles: legacy['seqstudio.roles'], current: 'd2' });
+  const catalog = [{ id: 'pay', name: 'Ödeme', role: 'svc' }, { id: 'ledger', name: 'Ledger', role: 'svc', parent: 'pay' }];
+  await seed(context, { docs: legacy['seqstudio.docs'], folders: legacy['seqstudio.folders'], roles: legacy['seqstudio.roles'], catalog, current: 'd2' });
   const page = await openApp(context);
   page.on('dialog', (d) => d.accept());
   await page.click('#btnDocs');
@@ -61,22 +62,26 @@ test('yedek alınır; birleştir ve değiştir doğru çalışır, geçersiz dos
   const backup = JSON.parse(dl.text());
   expect(dl.name).toMatch(/^sequence-studio-yedek-\d{4}-\d{2}-\d{2}\.json$/);
   expect([backup.kind, backup.docs.length, backup.folders.length, backup.roles.length]).toEqual(['sequence-studio-workspace', 3, 1, 1]);
+  expect(backup.catalog).toEqual(catalog);
   await expect(page.locator('#backupBox .bk-status')).toContainText('Son yedek');
 
   // Birleştir: yeni diyagram eklenir; farklı içerikli aynı diyagram "(yedek)" kopyası olur
   const changed = structuredClone(backup);
   changed.docs.push(doc('d9', 'Yedekteki yeni', seq('X->>Y: yeni\n')));
   changed.docs.find((d) => d.id === 'd1').code = seq('A->>B: farkli\n');
+  changed.catalog.push({ id: 'orders', name: 'Sipariş', role: 'svc' });
   await page.setInputFiles('#backupBox input[type=file]', tmpFile('b.json', JSON.stringify(changed)));
   await page.locator('.restore-opt', { hasText: 'Birleştir' }).click();
   await expect(page.locator('.toast').last()).toContainText('1 diyagram eklendi, 1 kopya oluşturuldu');
   expect((await idbDump(page)).docs.map((d) => d.name).sort()).toEqual(['Kart', 'Kart (yedek)', 'Kayıt', 'Yedekteki yeni', 'İptal']);
+  await expect.poll(async () => (await idbDump(page)).kv.catalog.map((x) => x.id)).toEqual(['pay', 'ledger', 'orders']);
 
   // Değiştir
   await page.click('#btnDocs');
   await page.setInputFiles('#backupBox input[type=file]', dl.path);
   await page.locator('.restore-opt', { hasText: 'Tümünü değiştir' }).click();
   await expect.poll(async () => (await idbDump(page)).docs.map((d) => d.name).sort()).toEqual(['Kart', 'Kayıt', 'İptal']);
+  await expect.poll(async () => (await idbDump(page)).kv.catalog.map((x) => x.id)).toEqual(['pay', 'ledger']);
 
   // Geçersiz dosya
   await page.click('#btnDocs');

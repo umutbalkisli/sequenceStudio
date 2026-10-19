@@ -70,7 +70,7 @@ The document lifecycle is published as events, so `docs.js` doesn't need to know
 
 | Event            | Payload            | Emitted when                                  | Listeners |
 |------------------|--------------------|-----------------------------------------------|-----------|
-| `doc:opened`     | `{ doc }`          | a diagram became the active one               | backlinks, drawer, refs, roles, versions |
+| `doc:opened`     | `{ doc }`          | a diagram became the active one               | backlinks, defs-notice, drawer, refs, versions |
 | `doc:leaving`    | `{ doc }`          | before switching away / closing the page      | versions |
 | `doc:saved`      | `{ doc }`          | the active diagram was saved                  | versions |
 | `doc:deleted`    | `{ id }`           | a diagram was deleted                         | backlinks, drawer, lint, refs, versions |
@@ -153,13 +153,29 @@ The model stores studio-only data as Mermaid comments, so exported code stays va
 | `%% @color #hex`        | color of the next participant or block                              |
 | `%% @role id`           | role of the next participant                                        |
 | `%% @roledef id {json}` | role definition, carried along so other workspaces can import it   |
+| `%% @item id`           | catalog item of the next participant                                |
+| `%% @itemdef id {json}` | catalog item definition (name, role, parent, desc), carried along  |
 | `%% @tone name`         | arrow tone of the next message (`success`, `error`, `warning`, `info`) |
 | `%% @ref docId`         | the next note links to another diagram                              |
 | `%% @auto`              | the following activation lines were generated; a blank line ends the group |
 
+## Roles and catalog
+
+Two separate ideas, chained: **participant → catalog item → role**.
+
+- A **role** (`features/roles.js`) says how a participant looks: shape, color, name prefix/suffix.
+- A **catalog item** (`features/catalog.js`) says who it is: `{ id, name, role, parent?, desc? }`. The role
+  is required, so the look always comes from one place. `parent` builds a C4-style hierarchy, and a parent
+  can be a participant too.
+
+A participant linked to an item takes its role and its name (`composeLabel(role, item.name)`). The name
+keeps following the item as long as it wasn't changed in that diagram. `features/library.js` shows both in
+one window with two tabs, and `features/defs-notice.js` offers to import unknown roles and items that come
+with shared diagrams. When references are expanded inline, participants linked to the same item are merged.
+
 ## State and storage
 
-`Seq.core.S` holds the runtime state: `docs`, `folders`, `roles`, `settings`, the active `doc`, its
+`Seq.core.S` holds the runtime state: `docs`, `folders`, `roles`, `catalog`, `settings`, the active `doc`, its
 parsed `model`, the `code` text and the current `selected` step. `features/editor.js` owns changes to
 the model (`commit`, `applyCode`, undo/redo). `features/docs.js` owns opening, saving and persisting
 diagrams. `core/storage.js` is the only file that talks to IndexedDB/localStorage.

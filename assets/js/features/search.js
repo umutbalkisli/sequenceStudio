@@ -75,8 +75,7 @@
     if (Seq.layout.currentView() !== 'builder') return jumpToCodeLine(hit);
     if (hit.kind === 'participant') {
       const p = S.model.participants[hit.idx];
-      const card = p && el.participants.querySelector(`[data-uid="${p.uid}"]`);
-      if (card) { card.scrollIntoView({ block: 'nearest' }); card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash'); }
+      if (p) Seq.participants.revealCard(p.uid);
       return;
     }
     let c = { message: 0, note: 0, block: 0 }, target = null;

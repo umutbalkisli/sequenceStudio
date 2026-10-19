@@ -51,7 +51,7 @@
         cb.addEventListener('change', () => { withSubs = cb.checked; draw(); });
         body.append(h('div', { class: 'opt-row' }, h('label', null, T('fx.subfolders')), h('label', { class: 'fx-check' }, cb, h('span', null, T('fx.subfoldersHint')))));
       }
-      body.append(h('p', { class: 'roles-note' }, ico('help'), T('fx.note')));
+      body.append(h('p', { class: 'note-line' }, ico('help'), T('fx.note')));
       const status = h('span', { class: 'dim-info' });
       const btn = h('button', { class: 'btn primary', disabled: !docs.length || null }, ico('download'), T('fx.download'));
       btn.addEventListener('click', async () => {

@@ -15,6 +15,13 @@
     el.palP.innerHTML = '';
     el.palS.innerHTML = '';
     el.palR.innerHTML = '';
+    // Katalog: tek düğme, aranabilir ağaç açar (öğeler palete çip olarak dökülmez)
+    const catBtn = h('button', { class: 'chip cat-open', title: T('cat.paletteTitle') }, ico('layers'), T('cat.title'),
+      (S.catalog || []).length ? h('span', { class: 'cat-count' }, String(S.catalog.length)) : null, ico('chevron'));
+    catBtn.addEventListener('click', () => Seq.catalog.openPicker(catBtn, {
+      draggable: true, onPick: (x) => Seq.participants.addParticipant(null, null, null, x.id),
+    }));
+    el.palR.append(catBtn, h('span', { class: 'pal-sep' }));
     (S.roles || []).forEach((r) => {
       const chip = h('div', { class: 'chip role-chip', draggable: 'true', title: r.name + ' — ' + T('pal.clickOrDrag'), style: `--c:${r.color}` }, ico('t-' + r.type), r.name);
       chip.addEventListener('click', () => Seq.participants.addParticipant(r.type, null, r.id));

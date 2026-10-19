@@ -14,7 +14,7 @@
 
   const DB_NAME = 'sequence-studio';
   const DB_VERSION = 2; // 2: diyagram sürüm geçmişi ("versions" deposu)
-  const LS = { docs: 'seqstudio.docs', folders: 'seqstudio.folders', roles: 'seqstudio.roles', migrated: 'seqstudio.storage' };
+  const LS = { docs: 'seqstudio.docs', folders: 'seqstudio.folders', roles: 'seqstudio.roles', catalog: 'seqstudio.catalog', migrated: 'seqstudio.storage' };
   const LEGACY = (k) => k.replace('seqstudio.', 'seqstudio.legacy.');
 
   const lsGet = (k, def) => { try { const v = localStorage.getItem(k); return v == null ? def : JSON.parse(v); } catch (e) { return def; } };
@@ -54,13 +54,14 @@
 
   async function readAllIdb() {
     const tx = db.transaction(['docs', 'kv'], 'readonly');
-    const [docs, folders, roles, migrated] = await Promise.all([
+    const [docs, folders, roles, catalog, migrated] = await Promise.all([
       req(tx.objectStore('docs').getAll()),
       req(tx.objectStore('kv').get('folders')),
       req(tx.objectStore('kv').get('roles')),
+      req(tx.objectStore('kv').get('catalog')),
       req(tx.objectStore('kv').get('migrated')),
     ]);
-    return { docs: docs || [], folders: folders || [], roles: roles == null ? null : roles, migrated: !!migrated };
+    return { docs: docs || [], folders: folders || [], roles: roles == null ? null : roles, catalog: catalog || [], migrated: !!migrated };
   }
 
   /** Eski localStorage verisini IndexedDB'ye taşır; geri okuyarak doğrular. */
@@ -87,7 +88,7 @@
   }
 
   /**
-   * Depolamayı açar ve tüm veriyi döner: { mode, docs, folders, roles, migrated }.
+   * Depolamayı açar ve tüm veriyi döner: { mode, docs, folders, roles, catalog, migrated }.
    * docs son güncellemeye göre yeniden eskiye sıralıdır.
    */
   async function init() {
@@ -104,15 +105,16 @@
       data.docs.forEach((d) => docCache.set(d.id, JSON.stringify(d)));
       kvCache.set('folders', JSON.stringify(data.folders));
       if (data.roles) kvCache.set('roles', JSON.stringify(data.roles));
+      kvCache.set('catalog', JSON.stringify(data.catalog));
       data.docs.sort((a, b) => (b.updated || 0) - (a.updated || 0));
-      return { mode, docs: data.docs, folders: data.folders, roles: data.roles, migrated };
+      return { mode, docs: data.docs, folders: data.folders, roles: data.roles, catalog: data.catalog, migrated };
     } catch (err) {
       // Yedek yol: localStorage
       console.warn('[storage] IndexedDB kullanılamıyor, localStorage ile devam ediliyor:', err);
       db = null;
       mode = 'local';
       const docs = lsGet(LS.docs, null) || lsGet(LEGACY(LS.docs), []);
-      return { mode, docs, folders: lsGet(LS.folders, null) || lsGet(LEGACY(LS.folders), []), roles: lsGet(LS.roles, null) || lsGet(LEGACY(LS.roles), null), migrated: null, error: String(err && err.message || err) };
+      return { mode, docs, folders: lsGet(LS.folders, null) || lsGet(LEGACY(LS.folders), []), roles: lsGet(LS.roles, null) || lsGet(LEGACY(LS.roles), null), catalog: lsGet(LS.catalog, []), migrated: null, error: String(err && err.message || err) };
     }
   }
 

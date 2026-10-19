@@ -89,13 +89,7 @@
       if (line != null) Seq.code.selectCodeLine(line);
       return;
     }
-    const card = el.participants.querySelector(`.pcard[data-uid="${x.uid}"]`);
-    if (card) {
-      card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
-      return;
-    }
-    Seq.flow.reveal(x.uid);
+    if (!Seq.participants.revealCard(x.uid)) Seq.flow.reveal(x.uid);
   }
   /** Modeldeki öğenin koddaki satırı: aynı kod yeniden ayrıştırılıp öğe sırasıyla eşlenir */
   function codeLineOf(uid) {

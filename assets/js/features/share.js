@@ -20,7 +20,7 @@
       const fence = text.match(/```mermaid\s*\n([\s\S]*?)```/);
       if (fence) text = fence[1];
       if (!/sequenceDiagram/.test(text)) toast(T('import.noSeq'), 'err');
-      Seq.docs.createDoc(file.name.replace(/\.(mmd|mermaid|txt|md)$/i, ''), Seq.roles.stripKnownRoleDefs(text.trim() + '\n'));
+      Seq.docs.createDoc(file.name.replace(/\.(mmd|mermaid|txt|md)$/i, ''), Seq.catalog.stripKnownDefs(text.trim() + '\n'));
       toast(T('import.done', { name: file.name }));
     };
     r.readAsText(file);
@@ -64,7 +64,7 @@
     return { code: new TextDecoder().decode(bytes), name: null };
   }
   async function copyShareLink() {
-    const enc = await encodeShare(Seq.roles.withRoleDefs(S.code), S.doc.name);
+    const enc = await encodeShare(Seq.catalog.withDefs(S.code), S.doc.name);
     const url = location.href.split('#')[0] + '#s=' + enc;
     try { await navigator.clipboard.writeText(url); toast(T('share.copied')); }
     catch (e) { prompt(T('share.prompt'), url); }
@@ -75,7 +75,7 @@
     if (!m) return false;
     try {
       const { code, name } = await decodeShare(m[1]);
-      Seq.docs.createDoc(name || (m[2] ? decodeURIComponent(m[2]) : T('share.docName')), Seq.roles.stripKnownRoleDefs(code));
+      Seq.docs.createDoc(name || (m[2] ? decodeURIComponent(m[2]) : T('share.docName')), Seq.catalog.stripKnownDefs(code));
       toast(T('share.opened'));
     } catch (e) { toast(T('share.failed'), 'err'); }
     history.replaceState(null, '', location.pathname + location.search);

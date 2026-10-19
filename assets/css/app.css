@@ -761,7 +761,8 @@ textarea.input { height: 34px; min-height: 34px; padding: 6px 10px; }
 .rp-chip:hover { border-color: color-mix(in srgb, var(--c) 55%, var(--border)); }
 .rp-chip.active { background: color-mix(in srgb, var(--c) 14%, var(--panel)); border-color: var(--c); color: var(--text); }
 .rp-chip.unknown { font-family: var(--mono); cursor: default; }
-.rp-edit { border: 0; background: none; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0 4px; }
+.rp-edit { display: inline-flex; align-items: center; gap: 3px; border: 0; background: none; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0 4px; }
+.rp-edit .ic { width: 13px; height: 13px; }
 .affix-input { display: flex; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); }
 .affix-input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .affix-input textarea.input { border: 0; box-shadow: none; flex: 1; min-width: 0; padding-left: 6px; padding-right: 6px; outline: none; background: transparent; }
@@ -794,8 +795,8 @@ textarea.input { height: 34px; min-height: 34px; padding: 6px 10px; }
 .role-row .del:hover { color: var(--danger); }
 .role-row .icon-btn { margin-top: 3px; }
 .roles-foot { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
-.roles-note { display: flex; gap: 6px; align-items: flex-start; margin: 12px 0 0; font-size: 11.5px; color: var(--muted); }
-.roles-note .ic { width: 14px; height: 14px; flex: none; margin-top: 1px; }
+.note-line { display: flex; gap: 6px; align-items: flex-start; margin: 12px 0 0; font-size: 11.5px; color: var(--muted); }
+.note-line .ic { width: 14px; height: 14px; flex: none; margin-top: 1px; }
 @media (max-width: 760px) {
   .role-head { display: none; }
   .role-row { grid-template-columns: 34px 1fr 1fr 38px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
@@ -1078,7 +1079,7 @@ kbd { box-shadow: 0 1px 0 var(--border-strong); }
 
 /* Açılır panel (core.dropdown) */
 .dropdown {
-  position: fixed; z-index: 60; width: 340px; max-width: calc(100vw - 16px); max-height: min(420px, 60vh); overflow: auto;
+  position: fixed; z-index: 66; width: 340px; max-width: calc(100vw - 16px); max-height: min(420px, 60vh); overflow: auto;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg);
   padding: 6px; animation: pop .16s var(--ease);
 }
@@ -1100,3 +1101,59 @@ kbd { box-shadow: 0 1px 0 var(--border-strong); }
 .bl-text { display: flex; flex-direction: column; min-width: 0; }
 .bl-text b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bl-text small { font-size: 11.5px; color: var(--muted); }
+
+/* ---------- Katalog ---------- */
+/* Palette: tek "Katalog" düğmesi (öğeler aranabilir ağaçta) */
+.chip.cat-open { --c: var(--accent); cursor: pointer; font: inherit; font-weight: 600; color: var(--text); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.chip.cat-open > .ic:last-child { width: 12px; height: 12px; color: var(--muted); }
+.cat-count { font-size: 11px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.pal-sep { width: 1px; align-self: stretch; margin: 3px 2px; background: var(--border); }
+
+/* Ağaç seçici */
+.catalog-picker { width: 380px; display: flex; flex-direction: column; }
+.catalog-picker .cp-search { height: 34px; margin: 2px 2px 6px; }
+.cp-list { overflow: auto; }
+.cp-item { align-items: center; }
+.cp-item .cp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.cp-item small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.cp-item.dim { opacity: .55; }
+.cp-item.dim .cp-name { font-weight: 500; }
+
+/* Katılımcı paneli */
+.cat-path { max-width: 100%; }
+.cat-path .ic { color: var(--c); }
+.cat-desc-line { flex-basis: 100%; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+
+/* Kataloğa kaydet */
+.cat-save { display: flex; flex-direction: column; gap: 12px; min-width: min(420px, 80vw); }
+.cat-save .field { display: flex; flex-direction: column; gap: 5px; }
+.cat-save label { font-size: 12px; font-weight: 650; color: var(--text-2); }
+.cat-save small { color: var(--muted); font-size: 11.5px; }
+
+/* Katalog ve roller penceresi */
+.lib-tabs { margin-bottom: 14px; }
+.lib-tabs button .ic { width: 15px; height: 15px; }
+.cat-tree { display: flex; flex-direction: column; gap: 6px; }
+.cat-row {
+  display: grid; grid-template-columns: 18px 34px minmax(150px, 1fr) 150px minmax(120px, 1fr) 84px 62px; gap: 8px; align-items: start;
+  padding: 3px 4px 3px calc(4px + var(--depth, 0) * 22px); border-radius: 10px; border: 1px solid transparent; position: relative;
+}
+.cat-row > .input, .cat-row > .select { height: 34px; }
+.cat-row .handle { height: 34px; width: 18px; cursor: grab; }
+.cat-row.dragging { opacity: .45; }
+.cat-row.drop-into { border-color: var(--accent); background: var(--accent-soft); }
+.cat-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cat-name .input { height: 34px; }
+.cat-usage { font-size: 12px; color: var(--muted); line-height: 34px; white-space: nowrap; }
+button.cat-usage { border: 0; background: none; padding: 0; text-align: left; color: var(--accent); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.cat-actions { display: flex; gap: 2px; padding-top: 3px; }
+.cat-actions .del:hover { color: var(--danger); }
+/* Yer baştan ayrılır; yalnızca sürüklerken görünür (belirince pencere büyüyüp satırlar kaymasın) */
+.cat-root-zone { margin-top: 4px; padding: 8px; border: 1px dashed var(--border-strong); border-radius: 10px; color: var(--muted); font-size: 12px; text-align: center; visibility: hidden; }
+.cat-tree:has(.cat-row.dragging) .cat-root-zone { visibility: visible; }
+.cat-root-zone.over { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 760px) {
+  .cat-row { grid-template-columns: 18px 34px 1fr 1fr; }
+  .cat-name { grid-column: 3 / -1; }
+  .cat-usage, .cat-actions { grid-column: span 2; }
+}

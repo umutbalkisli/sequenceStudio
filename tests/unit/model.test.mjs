@@ -55,6 +55,17 @@ describe('Studio yönergeleri (%% @…)', () => {
     assert.equal(m.participants[0].color, '#f0a020');
   });
 
+  test('@item, @role ve @color ile birlikte katılımcıya bağlanır; @itemdef/@roledef taşınır', () => {
+    const out = roundTrip(seq('%% @itemdef ledger {"name":"Ledger","role":"database","parent":"pay"}\n%% @item ledger\n%% @role database\n%% @color #f97a3c\nparticipant D@{ "type": "database" } as Ledger DB\n'));
+    const m = M.parse(out);
+    assert.equal(m.participants[0].item, 'ledger');
+    assert.equal(m.participants[0].role, 'database');
+    assert.deepEqual(m.itemDefs, { ledger: { name: 'Ledger', role: 'database', parent: 'pay' } });
+    assert.match(out, /%% @item ledger\n\s*%% @role database\n\s*%% @color #f97a3c\n\s*participant D/);
+    // Katılımcı önünde değilse yorum olarak kalır
+    assert.equal(items(M.parse(seq('%% @item x\nA->>B: y\n')), 'raw').length, 1);
+  });
+
   test('@tone mesaja bağlanır; mesaj önünde değilse yorum olarak kalır', () => {
     const m = M.parse(seq('%% @tone error\nA->>B: x\n%% @tone info\nNote over A: n\n'));
     assert.equal(items(m, 'message')[0].tone, 'error');
@@ -176,6 +187,14 @@ describe('referansları açma (expandRefs)', () => {
     const bank = m.participants.find((p) => p.label === 'Bank Gateway');
     assert.equal(bank.id, 'G_2');
     assert.equal(m.participants.find((p) => p.label === 'Gateway').id, 'G');
+  });
+
+  test('aynı katalog öğesine bağlı katılımcılar adları farklı olsa da birleşir', () => {
+    const host = M.parse(seq('%% @item ledger\nparticipant L as Ledger Service\nparticipant U\nU->>L: kaydet\n%% @ref d\nNote over L: Detay\n'));
+    const sub = M.parse(seq('%% @item ledger\nparticipant Svc as Defter\nparticipant DB\nSvc->>DB: insert\n'));
+    const m = M.expandRefs(host, (id) => (id === 'd' ? { name: 'Detay', model: sub } : null)).model;
+    assert.deepEqual(m.participants.map((p) => p.id), ['L', 'DB', 'U']);
+    assert.ok(items(m, 'message').some((x) => x.from === 'L' && x.to === 'DB'));
   });
 
   test('eksik hedef raporlanır; girdi model değişmez', () => {

@@ -9,6 +9,8 @@
     menu: '<path d="M4 6h16M4 12h16M4 18h10"/>',
     logo: '<path d="M6 3v18M18 3v18"/><path d="M6 8h10m-3-3 3 3-3 3"/><path d="M18 16H8m3-3-3 3 3 3"/>',
     check: '<path d="m5 12 4.5 4.5L19 7"/>',
+    layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
+    shapes: '<circle cx="7.5" cy="7.5" r="4"/><rect x="13" y="13" width="8" height="8" rx="1.5"/><path d="M16.5 3.5 21 11h-9z"/>',
     undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
     redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
     layout: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/>',

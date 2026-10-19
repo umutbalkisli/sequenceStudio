@@ -71,7 +71,7 @@
   }
   /** Bir dosyanın içeriği: görselde çizim, metinde (rol tanımları eklenmiş) kod */
   async function renderFile(fmt, code, name) {
-    if (fmt.kind === 'text') return fmt.toBlob(Seq.roles.withRoleDefs(code));
+    if (fmt.kind === 'text') return fmt.toBlob(Seq.catalog.withDefs(code));
     const built = await Seq.preview.renderDocSvg(code, fmt.drawio ? { drawio: name } : null);
     if (!built) throw new Error(T('exp.nothing'));
     return fmt.toBlob(built);
@@ -164,7 +164,7 @@
       if (built && drawioName) built.drawio = toDrawio($('.paper svg', el.canvas), S.model, drawioName);
       return built;
     };
-    const exportText = () => Seq.roles.withRoleDefs(inline() ? getExp(true).code : S.code);
+    const exportText = () => Seq.catalog.withDefs(inline() ? getExp(true).code : S.code);
 
     const body = h('div');
     const draw = () => {

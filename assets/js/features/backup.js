@@ -22,7 +22,7 @@
     if (S.doc && S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); }
     return {
       kind: BACKUP_KIND, version: 1, app: 'Sequence Studio', exportedAt: new Date().toISOString(),
-      docs: S.docs, folders: S.folders, roles: S.roles || [], settings: S.settings, current: S.doc && S.doc.id,
+      docs: S.docs, folders: S.folders, roles: S.roles || [], catalog: S.catalog || [], settings: S.settings, current: S.doc && S.doc.id,
     };
   }
   function downloadBackup() {
@@ -45,7 +45,8 @@
     const folders = (Array.isArray(b.folders) ? b.folders : []).filter((f) => f && typeof f.id === 'string').map((f) => Object.assign({}, f, { name: String(f.name || T('folder.new')) }));
     const okType = (t) => M.PARTICIPANT_TYPES.some((x) => x.v === t);
     const roles = (Array.isArray(b.roles) ? b.roles : []).filter((r) => r && /^[A-Za-z0-9_-]+$/.test(r.id || '') && okType(r.type) && /^#[0-9a-f]{6}$/i.test(r.color || ''));
-    return { docs, folders, roles, exportedAt: b.exportedAt, current: b.current };
+    const catalog = (Array.isArray(b.catalog) ? b.catalog : []).filter((x) => x && /^[A-Za-z0-9_-]+$/.test(x.id || '') && typeof x.name === 'string' && typeof x.role === 'string');
+    return { docs, folders, roles, catalog, exportedAt: b.exportedAt, current: b.current };
   }
 
   /** Birleştir: mevcutlar korunur; aynı kimlikli ama farklı diyagram "(yedek)" kopyası olarak eklenir. */
@@ -62,23 +63,27 @@
     });
     const rIds = new Set((S.roles || []).map((r) => r.id));
     bk.roles.forEach((r) => { if (!rIds.has(r.id)) { (S.roles = S.roles || []).push(r); rIds.add(r.id); } });
+    const cIds = new Set(S.catalog.map((x) => x.id));
+    bk.catalog.forEach((x) => { if (!cIds.has(x.id)) { S.catalog.push(x); cIds.add(x.id); } });
     return { added, copies, same };
   }
   function replaceWithBackup(bk) {
     S.docs = bk.docs;
     S.folders = bk.folders;
     S.roles = bk.roles.length ? bk.roles : Seq.roles.PRESET_ROLES.map(Seq.roles.presetRole);
+    S.catalog = bk.catalog;
   }
   function afterRestore(preferId) {
     Seq.docs.persistDocs();
     Seq.roles.saveRoles();
+    Seq.catalog.saveCatalog();
     Seq.palette.renderPalette();
     const keep = S.doc && S.docs.find((d) => d.id === S.doc.id);
     if (keep && !preferId) { S.doc = keep; Seq.drawer.renderDocList(); }
     else if (S.docs.length) { S.doc = null; Seq.docs.openDoc((preferId && S.docs.find((d) => d.id === preferId) ? preferId : S.docs[0].id)); }
     else { S.doc = null; Seq.docs.createDoc(T('doc.untitled'), tplL(window.SeqTemplates[0]).code); }
     refreshBackupUi();
-    Seq.roles.checkUnknownRoles();
+    Seq.defsNotice.check();
   }
   function openRestore(file) {
     file.text().then((text) => {
@@ -87,7 +92,7 @@
       const when = bk.exportedAt ? new Date(bk.exportedAt).toLocaleString(I18N.getLang() === 'tr' ? 'tr-TR' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
       const choice = (icn, title, desc, cls, onclick) => h('button', { class: 'restore-opt' + (cls ? ' ' + cls : ''), onclick }, ico(icn), h('b', null, title), h('span', null, desc));
       const body = h('div', { class: 'restore' },
-        h('p', { class: 'restore-sum' }, ico('file'), h('span', null, T('backup.summary', { date: when, n: bk.docs.length, m: bk.folders.length, k: bk.roles.length }))),
+        h('p', { class: 'restore-sum' }, ico('file'), h('span', null, T('backup.summary', { date: when, n: bk.docs.length, m: bk.folders.length, k: bk.roles.length, c: bk.catalog.length }))),
         h('div', { class: 'restore-opts' },
           choice('plus', T('backup.merge'), T('backup.mergeDesc'), 'primary', () => {
             if (S.doc && S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); }
@@ -103,7 +108,7 @@
             afterRestore(bk.current);
             toast(T('backup.replaced', { n: bk.docs.length }));
           })),
-        h('p', { class: 'roles-note' }, ico('help'), T('backup.restoreNote')));
+        h('p', { class: 'note-line' }, ico('help'), T('backup.restoreNote')));
       openModal(T('backup.restoreTitle'), body);
     });
   }

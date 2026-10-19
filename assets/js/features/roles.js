@@ -1,11 +1,12 @@
 /* Sequence Studio — roller
  *
- * Rol kütüphanesi (hazır set, ön/son ek), rol düzenleme ekranı, değişikliklerin tüm diyagramlara yayılması,
- * dışa aktarılan koda rol tanımlarını ekleme ve tanımsız rolleri içe alma.
+ * Rol = katılımcının "nasıl görünür" kalıbı: şekil, renk, ön/son ek (ör. Servis → "… Service"). Rol kütüphanesi
+ * (hazır set), "Katalog ve roller" penceresinin Roller sekmesi, değişikliklerin tüm diyagramlara yayılması,
+ * dışa aktarılan koda rol tanımlarını ekleme ve tanımsız rolleri bulma. Somut katılımcılar (kimdir) catalog.js'tedir.
  */
 (function (Seq) {
   'use strict';
-  const { $, $$, I18N, M, PCOLORS, S, T, add, debounce, downloadBlob, h, ico, openModal, toast, events } = Seq.core;
+  const { $$, I18N, M, PCOLORS, S, T, debounce, downloadBlob, h, ico, toast } = Seq.core;
 
   // ---------------------------------------------------------------------------
   // Katılımcı rolleri: ad + şekil (tip) + renk + ön/son ek. Kütüphane bu tarayıcıda
@@ -134,46 +135,26 @@
     if (rd.suffixBreak) r.suffixBreak = true;
     return r;
   }
-  /** Açık diyagramda kütüphanede olmayan roller varsa editörün üstünde bilgi çubuğu gösterir. */
-  function checkUnknownRoles() {
-    const box = $('#notice');
-    if (!box) return;
-    if (!S.doc) { box.hidden = true; return; }
-    const ignored = S.doc.ignoredRoles || [];
-    const ids = [...new Set(S.model.participants.map((p) => p.role).filter((id) => id && !roleById(id) && !ignored.includes(id)))];
-    if (!ids.length) { box.hidden = true; return; }
-    const defs = ids.map((id) => inferRoleDef(id, S.model));
-    box.innerHTML = '';
-    add(box,
-      ico('help'),
-      h('div', { class: 'nt-text' },
-        h('b', null, T('roles.unknown', { n: defs.length })),
-        h('span', { class: 'nt-chips' }, defs.map((d) => h('span', { class: 'rp-chip', style: `--c:${d.color}` }, ico('t-' + d.type), d.name)))),
-      h('div', { class: 'nt-actions' },
-        h('button', { class: 'btn primary sm', onclick: () => {
-          S.roles = (S.roles || []).concat(defs);
-          saveRoles();
-          Seq.palette.renderPalette();
-          // Tanımlar artık kütüphanede: koddaki "@roledef" satırlarına gerek yok
-          if (S.model.roleDefs) {
-            ids.forEach((id) => delete S.model.roleDefs[id]);
-            if (!Object.keys(S.model.roleDefs).length) delete S.model.roleDefs;
-            Seq.editor.commit(); Seq.editor.flushHistory();
-          } else Seq.flow.renderBuilder();
-          box.hidden = true;
-          toast(T('roles.added', { n: defs.length }));
-        } }, ico('plus'), T('roles.addBtn')),
-        h('button', { class: 'btn ghost sm', onclick: () => {
-          S.doc.ignoredRoles = ignored.concat(ids);
-          Seq.docs.persistDocs();
-          box.hidden = true;
-        } }, T('roles.ignore'))));
-    box.hidden = false;
+  /** Modelde kullanılan ama kütüphanede olmayan (ve diyagramda yoksayılmamış) rollerin tanımları */
+  function unknownRoles(model, doc) {
+    const ignored = (doc && doc.ignoredRoles) || [];
+    const ids = [...new Set(model.participants.map((p) => p.role).filter((id) => id && !roleById(id) && !ignored.includes(id)))];
+    return ids.map((id) => inferRoleDef(id, model));
   }
+  /** Rol tanımlarını kütüphaneye ekler */
+  function adoptRoles(defs) {
+    if (!defs.length) return;
+    S.roles = (S.roles || []).concat(defs.filter((d) => !roleById(d.id)));
+    saveRoles();
+    Seq.palette.renderPalette();
+  }
+  /** Rolün dışarı taşınan tanımı (yoksa null) */
+  const roleDefOf = (id) => (roleById(id) ? roleDef(roleById(id)) : null);
 
-  // --- Şablonlar ---
-  // --- Katılımcı rolleri ---
-  function openRoles() {
+  // ---------------------------------------------------------------------------
+  // Roller paneli (Katalog ve roller penceresinin "Roller" sekmesi)
+  // ---------------------------------------------------------------------------
+  function buildPanel() {
     // Değişiklikler gecikmeli olarak tüm diyagramlara yayılır; eski tanım "snap" içinde tutulur
     const snap = new Map((S.roles || []).map((r) => [r.id, { ...r }]));
     const pending = new Set();
@@ -228,6 +209,9 @@
         };
         const used = roleUsage(r.id);
         const del = h('button', { class: 'icon-btn sm del', title: T('delete'), onclick: () => {
+          // Katalog öğelerinin rolü zorunludur: kullanılan rol önce öğelerden kaldırılmalı
+          const items = (S.catalog || []).filter((x) => x.role === r.id).length;
+          if (items) return toast(T('role.usedByItems', { name: r.name, n: items }), 'err');
           if (used && !confirm(T('role.confirmDelete', { name: r.name, n: used }))) return;
           S.roles = S.roles.filter((x) => x !== r);
           changed(r);
@@ -298,15 +282,19 @@
           } }, ico('download'), T('role.export')),
           h('button', { class: 'btn sm ghost', onclick: () => fileIn.click() }, ico('upload'), T('role.import')),
           fileIn)),
-      h('p', { class: 'roles-note' }, ico('help'), T('role.note')));
-    openModal(T('role.title'), body, true);
+      h('p', { class: 'note-line' }, ico('help'), T('role.note')));
+    return body;
   }
+  /** Rolleri düzenle (Katalog ve roller penceresi, Roller sekmesi) */
+  const openRoles = () => Seq.library.open('roles');
 
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
   function init() {
-    events.on('doc:opened', () => checkUnknownRoles());
     S.roles = null;
   }
 
-  Seq.roles = { init, PRESET_ROLES, applyRole, baseName, checkUnknownRoles, composeLabel, openRoles, presetRole, prettyId, roleById, saveRoles, stripKnownRoleDefs, withRoleDefs };
+  Seq.roles = {
+    init, PRESET_ROLES, adoptRoles, applyRole, baseName, buildPanel, composeLabel, stripAffixes, openRoles, presetRole, prettyId, roleById, roleDefOf,
+    saveRoles, stripKnownRoleDefs, unknownRoles, withRoleDefs,
+  };
 })(window.Seq = window.Seq || {});

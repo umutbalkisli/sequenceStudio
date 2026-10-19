@@ -28,10 +28,10 @@ export const seq = (body) => 'sequenceDiagram\n' + body;
 export const doc = (id, name, code, extra = {}) => ({ id, name, code, updated: Date.now(), ...extra });
 
 /**
- * Depolamayı hazırlar. docs/folders/roles IndexedDB'ye (v2), settings/current localStorage'a yazılır.
+ * Depolamayı hazırlar. docs/folders/roles/catalog IndexedDB'ye (v2), settings/current localStorage'a yazılır.
  * legacy: eski sürümün localStorage anahtarları (taşıma testi için).
  */
-export async function seed(context, { settings = {}, docs, folders, roles, current, legacy, idb = true } = {}) {
+export async function seed(context, { settings = {}, docs, folders, roles, catalog, current, legacy, idb = true } = {}) {
   const page = await context.newPage();
   await page.goto(BLANK_URL);
   await page.evaluate(async (o) => {
@@ -54,11 +54,12 @@ export async function seed(context, { settings = {}, docs, folders, roles, curre
         (o.docs || []).forEach((d) => tx.objectStore('docs').put(d));
         if (o.folders) tx.objectStore('kv').put(o.folders, 'folders');
         if (o.roles) tx.objectStore('kv').put(o.roles, 'roles');
+        if (o.catalog) tx.objectStore('kv').put(o.catalog, 'catalog');
         tx.objectStore('kv').put(Date.now(), 'migrated');
         tx.oncomplete = () => { db.close(); res(); };
       };
     });
-  }, { settings, docs, folders, roles, current, legacy, idb: idb && !legacy });
+  }, { settings, docs, folders, roles, catalog, current, legacy, idb: idb && !legacy });
   await page.close();
 }
 
@@ -85,9 +86,12 @@ export const setView = (page, v) => page.click(`[data-view=${v}]`);
 
 /** Menüden diyagram açar. */
 export async function openDocFromDrawer(page, name) {
-  await page.click('#btnDocs');
-  await page.locator('.doc-item', { hasText: name }).first().click();
-  await expect(page.locator('#docName')).toHaveValue(name);
+  // Çekmece kayarak açılır; yük altında ilk tıklama boşa gidebilir, o yüzden gerekirse yinelenir
+  await expect(async () => {
+    if (!(await page.locator('#drawer.open').count())) await page.click('#btnDocs');
+    await page.locator('#drawer.open .doc-item', { hasText: name }).first().click({ timeout: 2000 });
+    await expect(page.locator('#docName')).toHaveValue(name, { timeout: 1000 });
+  }).toPass({ timeout: 10000 });
 }
 
 /** IndexedDB içeriği: { docs, kv: { anahtar: değer } } */
