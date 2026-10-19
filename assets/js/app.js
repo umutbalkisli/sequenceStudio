@@ -2617,11 +2617,53 @@
     } finally { URL.revokeObjectURL(url); }
   }
 
+  // --- Referansları dışa aktarmada açma ---
+  const countDocRefs = (model) => { let n = 0; M.walk(model.items, (it) => { if (it.kind === 'note' && it.ref) n++; }); return n; };
+  const resolveDoc = (id) => { const d = S.docs.find((x) => x.id === id); return d ? { name: d.name, model: M.parse(docCode(d)) } : null; };
+  /**
+   * Diyagramın referansları açılmış hâli. forText: .mmd/.txt için başlık notlarının bağlantısı kaldırılır
+   * (dosya tekrar içe aktarılınca yeniden açılmasın). Döner: expandRefs raporu + code.
+   */
+  function expandedDoc(doc, code, forText) {
+    const r = M.expandRefs(M.parse(code), resolveDoc, { rootId: doc && doc.id });
+    if (forText) M.walk(r.model.items, (it) => { if (it.refHeader) delete it.ref; });
+    r.code = M.serialize(r.model);
+    return r;
+  }
+  /** Dahil edilecek diyagramların listesi ve uyarılar (dışa aktarma penceresinde) */
+  function refReport(r) {
+    const box = h('div', { class: 'ref-report' });
+    if (r.included.length) {
+      box.append(h('div', { class: 'rr-title' }, T('exp.refsIncluded')));
+      box.append(h('ul', null, r.included.map((x) => h('li', { style: `padding-left:${Math.max(0, x.depth - 1) * 16}px` }, ico('link'), x.name))));
+    }
+    const missing = r.missing.length ? T('exp.refsMissing', { n: r.missing.length }) : '';
+    const cycles = r.cycles.length ? T('exp.refsCycles', { names: r.cycles.join(', ') }) : '';
+    if (missing || cycles) box.append(h('p', { class: 'rr-warn' }, ico('critical'), [missing, cycles].filter(Boolean).join(' ')));
+    box.append(h('p', { class: 'rr-note' }, T('exp.refsNote')));
+    return box;
+  }
+
   function openExport() {
     if (el.code.value !== S.code) applyCode(el.code.value, 'code');
     refreshAutoAct();
     flushHistory();
     const ex = S.settings.exp;
+    if (!ex.refs) ex.refs = 'link';
+    const hasRefs = countDocRefs(S.model) > 0;
+    const inline = () => hasRefs && ex.refs === 'inline';
+    // Açılmış diyagram (görsel ve metin için ayrı) — pencere açıkken bir kez hesaplanır
+    let expImg = null, expText = null;
+    const getExp = (forText) => (forText ? (expText = expText || expandedDoc(S.doc, S.code, true)) : (expImg = expImg || expandedDoc(S.doc, S.code, false)));
+    /** Dışa aktarılacak görsel: referanslar açılacaksa ekran dışında çizilir, yoksa önizlemeden alınır */
+    const exportBuilt = async (drawioName) => {
+      if (inline()) return renderDocSvg(getExp(false).code, drawioName ? { drawio: drawioName } : null);
+      const built = buildExportSvg(exportBg());
+      if (built && drawioName) built.drawio = toDrawio($('.paper svg', el.canvas), S.model, drawioName);
+      return built;
+    };
+    const exportText = () => withRoleDefs(inline() ? getExp(true).code : S.code);
+
     const body = h('div');
     const draw = () => {
       body.innerHTML = '';
@@ -2629,29 +2671,39 @@
       const grid = h('div', { class: 'fmt-grid' });
       FORMATS.forEach((f) => grid.append(h('button', { class: 'fmt' + (ex.format === f.v ? ' active' : ''), onclick: () => { ex.format = f.v; saveSettings(); draw(); } }, ico(f.ic), h('b', null, T('fmt.' + f.v)), h('span', null, T('fmt.' + f.v + '.desc')))));
       body.append(grid);
+      const seg = (opts, val, on) => h('div', { class: 'seg' }, opts.map(([v, l]) => h('button', { class: v === val ? 'active' : '', onclick: () => { on(v); saveSettings(); draw(); } }, l)));
+
+      // Referanslar: bağlantı olarak bırak ya da bağlı diyagramları içine çiz
+      if (hasRefs) {
+        body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.refs')),
+          seg([['link', T('exp.refsLink')], ['inline', T('exp.refsInline')]], ex.refs, (v) => { ex.refs = v; })));
+        if (inline()) body.append(refReport(getExp(false)));
+      }
 
       const nameIn = h('input', { class: 'input', value: safeName(), spellcheck: 'false' });
       const ext = EXT[ex.format];
 
       if (isImg) {
         if (!S.lastOk) body.append(h('div', { class: 'render-error', style: 'position:static;margin-bottom:12px' }, ico('critical'), T('exp.hasError')));
-        const built = buildExportSvg(exportBg());
         const prev = h('div', { class: 'export-preview' });
         const dim = h('span', { class: 'dim-info' });
-        if (built) {
-          const img = h('img', { alt: T('exp.preview'), src: URL.createObjectURL(new Blob([built.markup], { type: 'image/svg+xml' })) });
-          prev.append(img);
+        const show = (built) => {
+          prev.innerHTML = '';
+          if (!built) { prev.append(h('span', { class: 'dim-info' }, T('exp.nothing'))); return; }
+          prev.append(h('img', { alt: T('exp.preview'), src: URL.createObjectURL(new Blob([built.markup], { type: 'image/svg+xml' })) }));
           const sc = effectiveScale(built.w, built.h);
           dim.textContent = ex.format === 'png' ? `${Math.round(built.w * sc)} × ${Math.round(built.h * sc)} px` : ex.format === 'drawio' ? T('exp.drawioInfo') : `${built.w} × ${built.h} (${T('exp.vector')})`;
-        } else prev.append(h('span', { class: 'dim-info' }, T('exp.nothing')));
+        };
+        if (inline()) {
+          prev.append(h('span', { class: 'dim-info' }, '…'));
+          exportBuilt().then(show).catch((e) => { prev.innerHTML = ''; prev.append(h('span', { class: 'dim-info' }, T('exp.failed', { msg: e.message }))); });
+        } else show(buildExportSvg(exportBg()));
         body.append(prev);
-
-        const seg = (opts, val, on) => h('div', { class: 'seg' }, opts.map(([v, l]) => h('button', { class: v === val ? 'active' : '', onclick: () => { on(v); saveSettings(); draw(); } }, l)));
         if (ex.format === 'png') body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.scale')), seg([[1, '1×'], [2, '2×'], [3, '3×'], [4, '4×']], ex.scale, (v) => { ex.scale = v; })));
         body.append(...bgOptionRows(ex, seg));
         body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.size')), dim));
       } else {
-        body.append(h('pre', { class: 'export-code', style: 'margin:0 0 12px;max-height:260px;overflow:auto;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--code-bg);font:12px/1.55 var(--mono)' }, S.code));
+        body.append(h('pre', { class: 'export-code', style: 'margin:0 0 12px;max-height:260px;overflow:auto;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--code-bg);font:12px/1.55 var(--mono)' }, exportText()));
       }
       body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.filename')), h('div', { class: 'row', style: 'max-width:340px;gap:6px' }, nameIn, h('span', { class: 'dim-info', style: 'flex:none' }, ext))));
 
@@ -2659,15 +2711,12 @@
         const fname = (nameIn.value.trim() || 'diagram') + ext;
         try {
           if (ex.format === 'mmd' || ex.format === 'txt') {
-            downloadBlob(new Blob([withRoleDefs(S.code)], { type: 'text/plain;charset=utf-8' }), fname);
-          } else if (ex.format === 'drawio') {
-            const src = $('.paper svg', el.canvas);
-            if (!src) return toast(T('exp.nothing'), 'err');
-            downloadBlob(new Blob([toDrawio(src, S.model, nameIn.value.trim() || safeName())], { type: 'application/vnd.jgraph.mxfile;charset=utf-8' }), fname);
+            downloadBlob(new Blob([exportText()], { type: 'text/plain;charset=utf-8' }), fname);
           } else {
-            const built = buildExportSvg(exportBg());
+            const built = await exportBuilt(ex.format === 'drawio' ? (nameIn.value.trim() || safeName()) : null);
             if (!built) return toast(T('exp.nothing'), 'err');
-            if (ex.format === 'svg') downloadBlob(new Blob([built.markup], { type: 'image/svg+xml;charset=utf-8' }), fname);
+            if (ex.format === 'drawio') downloadBlob(new Blob([built.drawio], { type: 'application/vnd.jgraph.mxfile;charset=utf-8' }), fname);
+            else if (ex.format === 'svg') downloadBlob(new Blob([built.markup], { type: 'image/svg+xml;charset=utf-8' }), fname);
             else downloadBlob(await svgToPngBlob(built.markup, built.w, built.h, effectiveScale(built.w, built.h)), fname);
           }
           toast(T('exp.downloaded', { name: fname }));
@@ -2677,22 +2726,22 @@
       const doCopy = async () => {
         try {
           if (ex.format === 'png') {
-            const built = buildExportSvg(exportBg());
+            const built = await exportBuilt();
             if (!built) return;
             await navigator.clipboard.write([new ClipboardItem({ 'image/png': svgToPngBlob(built.markup, built.w, built.h, effectiveScale(built.w, built.h)) })]);
             toast(T('exp.pngCopied'));
           } else if (ex.format === 'svg') {
-            const built = buildExportSvg(exportBg());
+            const built = await exportBuilt();
             if (!built) return;
             await navigator.clipboard.writeText(built.markup);
             toast(T('exp.svgCopied'));
           } else if (ex.format === 'drawio') {
-            const src = $('.paper svg', el.canvas);
-            if (!src) return;
-            await navigator.clipboard.writeText(toDrawio(src, S.model, safeName()));
+            const built = await exportBuilt(safeName());
+            if (!built) return;
+            await navigator.clipboard.writeText(built.drawio);
             toast(T('exp.drawioCopied'));
           } else {
-            await navigator.clipboard.writeText(withRoleDefs(S.code));
+            await navigator.clipboard.writeText(exportText());
             toast(T('exp.codeCopied'));
           }
         } catch (err) { toast(T('exp.copyFailed', { msg: err.message }), 'err'); }
@@ -3544,6 +3593,12 @@
       const seg = (opts, val, on) => h('div', { class: 'seg' }, opts.map(([v, l]) => h('button', { class: v === val ? 'active' : '', onclick: () => { on(v); saveSettings(); draw(); } }, l)));
       if (ex.format === 'png') body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.scale')), seg([[1, '1×'], [2, '2×'], [3, '3×'], [4, '4×']], ex.scale, (v) => { ex.scale = v; })));
       if (ex.format === 'png' || ex.format === 'svg' || ex.format === 'drawio') body.append(...bgOptionRows(ex, seg));
+      // Klasörde referans içeren diyagram varsa: bağlı diyagramları içine çizme seçeneği
+      if (docs.some(({ d }) => /@ref\b/.test(docCode(d)))) {
+        if (!ex.refs) ex.refs = 'link';
+        body.append(h('div', { class: 'opt-row' }, h('label', null, T('exp.refs')),
+          seg([['link', T('exp.refsLink')], ['inline', T('exp.refsInline')]], ex.refs, (v) => { ex.refs = v; })));
+      }
       if (hasSubs) {
         const cb = h('input', { type: 'checkbox' });
         cb.checked = withSubs;
@@ -3570,10 +3625,12 @@
             while (used.has(dir + '/' + name + ext)) name = fileSafe(d.name) + ' (' + k++ + ')';
             const path = dir + '/' + name + ext;
             used.add(path);
-            const code = docCode(d);
+            const isText = ex.format === 'mmd' || ex.format === 'txt';
+            let code = docCode(d);
             try {
+              if (ex.refs === 'inline' && /@ref\b/.test(code)) code = expandedDoc(d, code, isText).code;
               let data;
-              if (ex.format === 'mmd' || ex.format === 'txt') data = enc.encode(withRoleDefs(code));
+              if (isText) data = enc.encode(withRoleDefs(code));
               else {
                 const built = await renderDocSvg(code, ex.format === 'drawio' ? { drawio: d.name } : null);
                 if (!built) throw new Error(T('exp.nothing'));

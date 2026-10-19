@@ -473,6 +473,85 @@
     return m ? serialize(m) : null;
   }
 
+  // ---- Referansları açma (dışa aktarma için) -------------------------------
+
+  /**
+   * Referans notlarını (note.ref) bağlı diyagramın akışıyla değiştirir; özyinelemelidir.
+   * Model kopyalanır, girdi değişmez. resolve(id) → { name, model } | null.
+   * - Bağlı diyagramın katılımcıları ana diyagramla birleştirilir: aynı rol+ad, aynı kimlik+ad ya da
+   *   aynı ad eşleşir; eşleşmeyenler referansın bağlı olduğu katılımcının hemen sağına eklenir
+   *   (kimlik çakışırsa yeniden adlandırılır, mesajlar buna göre güncellenir).
+   * - Açılan akış renkli bir "rect" içine, başında referans başlığıyla (note.ref korunur) konur.
+   * - Döngüler (A → B → A) ve maxDepth üstü bağlantı olarak bırakılır.
+   * Döner: { model, included: [{ id, name, depth }], missing: [id], cycles: [name] }
+   */
+  function expandRefs(model, resolve, opts) {
+    opts = opts || {};
+    const maxDepth = opts.maxDepth || 6;
+    const report = { included: [], missing: [], cycles: [] };
+    const out = JSON.parse(JSON.stringify(model));
+    const key = (s) => String(s || '').toLocaleLowerCase('tr').replace(/\s+/g, ' ').trim();
+
+    function mergeParticipants(host, sub, anchorId) {
+      const map = {};
+      host.participants.forEach((p) => { p.implicit = false; }); // sıra korunsun diye hepsi bildirilir
+      const anchor = host.participants.find((p) => p.id === anchorId);
+      let at = anchor ? host.participants.indexOf(anchor) + 1 : host.participants.length;
+      // Bağlı katılımcı bir box içindeyse yeni katılımcılar box'ı bölmesin: box'ın sonuna eklenir
+      if (anchor && anchor.boxId) { while (at < host.participants.length && host.participants[at].boxId === anchor.boxId) at++; }
+      sub.participants.forEach((sp) => {
+        const hp = host.participants.find((h) => sp.role && h.role === sp.role && key(h.label) === key(sp.label))
+          || host.participants.find((h) => h.id === sp.id && key(h.label) === key(sp.label))
+          || host.participants.find((h) => key(h.label) === key(sp.label));
+        if (hp) { map[sp.id] = hp.id; return; }
+        let id = sp.id, k = 2;
+        while (host.participants.some((h) => h.id === id)) id = sp.id + '_' + k++;
+        host.participants.splice(at++, 0, Object.assign({}, sp, { uid: uid(), id, boxId: null, implicit: false }));
+        map[sp.id] = id;
+      });
+      return map;
+    }
+    function remap(items, map) {
+      const m = (id) => map[id] || id;
+      walk(items, (it) => {
+        it.uid = uid();
+        if (it.kind === 'message') { it.from = m(it.from); it.to = m(it.to); }
+        else if (it.kind === 'note') it.targets = it.targets.map(m);
+        else if (it.kind === 'activation') it.participant = m(it.participant);
+        else if (it.kind === 'block') it.branches.forEach((b) => { b.uid = uid(); });
+      });
+    }
+    function expandList(host, items, stack) {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === 'block') { it.branches.forEach((b) => expandList(host, b.items, stack)); continue; }
+        if (it.kind !== 'note' || !it.ref) continue;
+        const src = resolve(it.ref);
+        if (!src) { if (!report.missing.includes(it.ref)) report.missing.push(it.ref); continue; }
+        if (stack.includes(it.ref) || stack.length > maxDepth) { if (!report.cycles.includes(src.name)) report.cycles.push(src.name); continue; }
+        const sub = JSON.parse(JSON.stringify(src.model));
+        report.included.push({ id: it.ref, name: src.name, depth: stack.length });
+        // Önce bağlı diyagramın kendi referansları açılır (katılımcıları da ona eklenir)
+        expandList(sub, sub.items, stack.concat(it.ref));
+        const map = mergeParticipants(host, sub, it.targets[0]);
+        remap(sub.items, map);
+        // Başlık notunun kapsamı: bağlı katılımcı + alt akışta yer alanlar (ana diyagram sırasına göre en soldan en sağa)
+        const involved = new Set(it.targets);
+        walk(sub.items, (x) => {
+          if (x.kind === 'message') { involved.add(x.from); involved.add(x.to); }
+          else if (x.kind === 'note') x.targets.forEach((t) => involved.add(t));
+        });
+        const order = host.participants.map((p) => p.id).filter((id) => involved.has(id));
+        const span = order.length > 1 ? [order[0], order[order.length - 1]] : [order[0] || it.targets[0]];
+        const header = { uid: uid(), kind: 'note', position: 'over', targets: span, text: src.name, ref: it.ref, refHeader: true };
+        const tint = 'rgba(58, 141, 222, ' + (0.07 + Math.min(stack.length, 4) * 0.035).toFixed(3) + ')';
+        items.splice(i, 1, { uid: uid(), kind: 'block', type: 'rect', branches: [{ uid: uid(), label: tint, items: [header].concat(sub.items) }] });
+      }
+    }
+    expandList(out, out.items, opts.rootId ? [opts.rootId] : []);
+    return Object.assign({ model: out }, report);
+  }
+
   // ---- Otomatik aktivasyon --------------------------------------------------
 
   const isCall = (a) => a === '->>' || a === '->';
@@ -629,7 +708,7 @@
   }
 
   const api = {
-    uid, parse, serialize, previewSafe, previewSafeModel, inferActivations, hasManualActivation, emptyModel, walk, findNode, cloneWithNewUids, slugify,
+    uid, parse, serialize, previewSafe, previewSafeModel, expandRefs, inferActivations, hasManualActivation, emptyModel, walk, findNode, cloneWithNewUids, slugify,
     encodeText, decodeText, encodeBr, decodeBr, parseBoxHeader,
     PARTICIPANT_TYPES, ARROWS, ALL_ARROWS, BLOCK_TYPES, NOTE_POSITIONS, TONES,
   };
