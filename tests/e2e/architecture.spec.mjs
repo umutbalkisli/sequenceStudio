@@ -88,3 +88,36 @@ test('katalog değişince yeniden çizilir; dışa aktarma; boş katalogda yönl
   await page.evaluate(() => { window.Seq.core.S.catalog = []; window.Seq.arch.render(); });
   await expect(page.locator('.arch-empty')).toContainText('katalogdan oluşur');
 });
+
+test('kenara tıklayınca ilişkinin geçtiği akışlar mesajlarıyla listelenir; seçilen akışta mesaj gösterilir', async ({ context }) => {
+  const docs = DOCS().concat([doc('b', 'Bakiye', seq(part('O', 'order-api', 'service', 'Order Service') + part('L', 'ledger', 'service', 'Ledger Service')
+    + 'O->>O: hazırla\nO->>L: bakiye sorgula\nL-->>O: bakiye\n'))]);
+  await seed(context, { docs, current: 'a', catalog: CATALOG, settings: { screen: 'arch' } });
+  const page = await openApp(context);
+  await expect.poll(() => nodes(page)).toEqual(['customer', 'orders', 'pay']);
+
+  // Sipariş sistemi → Ödeme sistemi: iki akışta geçer (etikete tıklanır)
+  await page.locator('#archCanvas .edgeLabel.arch-edge', { hasText: 'öde' }).click();
+  const items = page.locator('.arch-edge-menu .dd-item');
+  await expect(page.locator('.arch-edge-menu .dd-head')).toContainText('Sipariş sistemi → Ödeme sistemi');
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toContainText('Bakiye');
+  await expect(items.nth(0)).toContainText('bakiye sorgula');
+  await expect(items.nth(1)).toContainText('Sipariş akışı');
+  await items.nth(0).click();
+  await expect(page.locator('#archScreen')).toBeHidden();
+  await expect(page.locator('#docName')).toHaveValue('Bakiye');
+  await expect(page.locator('#flow .step.selected .text-input')).toHaveValue('bakiye sorgula'); // "hazırla" değil, ilişkinin mesajı
+
+  // Çizginin kendisine (görünmez geniş alan) tıklamak da çalışır
+  await page.locator('#screenSeg [data-screen="arch"]').click();
+  // Eğrinin sınır kutusunun ortası çizginin üstünde olmayabilir: yolun orta noktasına tıklanır
+  const pt = await page.locator('#archCanvas .arch-edge-hit[data-edge="customer>orders"]').evaluate((p) => {
+    const m = p.getPointAtLength(p.getTotalLength() / 3);
+    const q = p.ownerSVGElement.createSVGPoint(); q.x = m.x; q.y = m.y;
+    const s = q.matrixTransform(p.getScreenCTM());
+    return { x: s.x, y: s.y };
+  });
+  await page.mouse.click(pt.x, pt.y);
+  await expect(page.locator('.arch-edge-menu .dd-item')).toHaveText([/Sipariş akışı[\s\S]*sipariş ver/]);
+});

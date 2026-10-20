@@ -2,7 +2,7 @@
  *
  * Üst bardaki "Akış / Mimari" geçişiyle açılan ikinci ekran. Katalog hiyerarşisini ve sekans diyagramlarından
  * türetilen ilişkileri C1 (sistemler) → C2 (sistemin içi) → C3 (konteynerin içi) olarak çizer; bir öğeye
- * tıklayıp içine girilir. Mantık lib/c4.js'tedir (SeqC4); bu modül ekranı, gezinmeyi ve dışa aktarmayı yönetir.
+ * tıklayıp içine girilir; bir kenara tıklayınca o ilişkinin geçtiği akışlar listelenir. Mantık lib/c4.js'tedir (SeqC4); bu modül ekranı, gezinmeyi ve dışa aktarmayı yönetir.
  */
 (function (Seq) {
   'use strict';
@@ -63,6 +63,7 @@
       paper.innerHTML = svg;
       canvas.append(paper);
       wireNodes(paper.querySelector('svg'), v, ids);
+      wireEdges(paper.querySelector('svg'), v, ids);
     } catch (err) {
       if (my !== renderSeq) return;
       canvas.append(h('div', { class: 'render-error', style: 'position:static' }, ico('critical'), h('pre', null, String(err && (err.message || err.str) || err))));
@@ -106,12 +107,63 @@
       g.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
     });
   }
-  let menu = null;
+  let menu = null; // açık düğüm/kenar menüsü
+  /**
+   * Kenarlara tıklama: ince çizginin üstüne görünmez geniş bir tıklama alanı eklenir; etiket de tıklanabilir.
+   * Mermaid kenarları "L_<from>_<to>_<n>" kimliğiyle çizer (hem çizgide hem etikette data-id).
+   */
+  function wireEdges(svg, v, ids) {
+    if (!svg) return;
+    const NS = 'http://www.w3.org/2000/svg';
+    svg.querySelectorAll('path.flowchart-link').forEach((path) => {
+      const m = /^L_(n\d+)_(n\d+)_\d+$/.exec(path.dataset.id || '');
+      const edge = m && v.edges.find((e) => e.from === ids.get(m[1]) && e.to === ids.get(m[2]));
+      if (!edge) return;
+      const hit = document.createElementNS(NS, 'path');
+      hit.setAttribute('d', path.getAttribute('d'));
+      hit.setAttribute('class', 'arch-edge-hit');
+      hit.setAttribute('data-edge', edge.from + '>' + edge.to);
+      hit.setAttribute('tabindex', '0');
+      const tip = document.createElementNS(NS, 'title');
+      tip.textContent = T('arch.edgeTitle');
+      hit.append(tip);
+      path.after(hit);
+      const label = svg.querySelector(`.edgeLabel .label[data-id="${path.dataset.id}"]`);
+      const targets = [hit, label && label.closest('.edgeLabel')].filter(Boolean);
+      const hover = (on) => { path.classList.toggle('arch-edge-on', on); if (label) label.closest('.edgeLabel').classList.toggle('arch-edge-on', on); };
+      targets.forEach((t) => {
+        t.classList.add('arch-edge');
+        t.addEventListener('mouseenter', () => hover(true));
+        t.addEventListener('mouseleave', () => hover(false));
+        t.addEventListener('click', () => openEdgeMenu(label || hit, edge));
+        t.addEventListener('keydown', (e) => { if (e.key === 'Enter') openEdgeMenu(label || hit, edge); });
+      });
+    });
+  }
+  const shortName = (id) => oneLine(Seq.catalog.displayName(Seq.catalog.itemById(id)));
+  const subtree = (id) => C4().subtree(S.catalog, id);
+  /** İlişkinin geçtiği akışlar ve her birindeki mesajlar */
+  function openEdgeMenu(anchor, edge) {
+    if (menu) menu.close();
+    const flows = edge.flows.map((f) => ({ doc: S.docs.find((d) => d.id === f.doc), texts: f.texts })).filter((f) => f.doc)
+      .sort((a, b) => a.doc.name.localeCompare(b.doc.name));
+    const fromSet = subtree(edge.from), toSet = subtree(edge.to);
+    menu = dropdown(anchor, (box) => {
+      box.append(h('div', { class: 'dd-head' },
+        h('b', null, shortName(edge.from) + ' → ' + shortName(edge.to)),
+        h('span', { class: 'dd-sum' }, T('arch.flowsN', { n: flows.length }))));
+      box.append(h('ul', null, flows.map((f) => h('li', null,
+        h('button', { class: 'dd-item bl-item', onclick: () => { menu.close(); openDiagram(f.doc.id, [...fromSet], { from: fromSet, to: toSet }); } }, ico('file'),
+          h('span', { class: 'bl-text' }, h('b', null, f.doc.name),
+            h('small', null, f.texts.length ? f.texts.map((t) => t.text + (t.n > 1 ? ' ×' + t.n : '')).join(', ') : T('arch.noText'))))))));
+    }, { class: 'arch-edge-menu', onClose: () => { menu = null; } });
+  }
+
   function openNodeMenu(anchor, node) {
     if (menu) menu.close();
     const x = node.item;
     // Kullanım: öğenin kendisi ve alt öğeleri (bir sistemin hangi diyagramlarda yer aldığı)
-    const ids = [x.id, ...S.catalog.filter((y) => Seq.catalog.pathOf(y.id).some((a) => a.id === x.id) && y.id !== x.id).map((y) => y.id)];
+    const ids = [...subtree(x.id)];
     const used = new Map();
     ids.forEach((id) => Seq.catalog.usageOf(id).forEach(({ doc }) => used.set(doc.id, doc)));
     menu = dropdown(anchor, (box) => {
@@ -127,10 +179,26 @@
       box.append(list);
     }, { onClose: () => { menu = null; } });
   }
-  /** Akış ekranına geçip diyagramı açar ve ilgili katılımcıyı gösterir */
-  function openDiagram(docId, itemIds) {
+  /**
+   * Akış ekranına geçip diyagramı açar. msg ({ from, to } öğe kümeleri) verilirse ilişkinin ilk mesajını,
+   * yoksa öğeye bağlı ilk katılımcıyı gösterir.
+   */
+  function openDiagram(docId, itemIds, msg) {
     setScreen('seq');
     if (!S.doc || S.doc.id !== docId) Seq.docs.openDoc(docId);
+    if (msg) {
+      const itemOf = new Map(S.model.participants.map((p) => [p.id, p.item]));
+      let hit = null;
+      M.walk(S.model.items, (it) => {
+        if (hit || it.kind !== 'message' || it.arrow.startsWith('--')) return;
+        if (msg.from.has(itemOf.get(it.from)) && msg.to.has(itemOf.get(it.to))) hit = it;
+      });
+      if (hit) {
+        if (Seq.layout.currentView() === 'code') Seq.code.selectCodeLine(hit.line);
+        else Seq.flow.reveal(hit.uid);
+        return;
+      }
+    }
     const p = S.model.participants.find((q) => itemIds.includes(q.item));
     if (p) Seq.participants.revealCard(p.uid);
   }

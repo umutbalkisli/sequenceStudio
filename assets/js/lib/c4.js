@@ -4,7 +4,7 @@
  * görünümler üretir. İlişkiler elle çizilmez: kataloğa bağlı iki katılımcı arasındaki her çağrı bir "kullanır"
  * ilişkisidir; görünümün düzeyine göre hiyerarşide yukarı toplanır.
  *
- *   relations(items, docs)       → [{ from, to, labels: [{ text, n }], docs: [docId] }]   (öğe → öğe)
+ *   relations(items, docs)       → [{ from, to, labels: [{ text, n }], docs: [docId], flows: [{ doc, texts: [{ text, n }] }] }]
  *   view(items, rels, focusId)   → { focus, nodes, edges }   focusId boşsa en üst düzey (C1)
  *   toMermaid(view, opts)        → Mermaid flowchart kodu
  *
@@ -54,19 +54,31 @@
         if (!a || !b) { unlinked++; return; }
         if (a === b) return;
         const k = a + '>' + b;
-        if (!map.has(k)) map.set(k, { from: a, to: b, labels: new Map(), docs: new Set() });
+        if (!map.has(k)) map.set(k, { from: a, to: b, labels: new Map(), flows: new Map() });
         const r = map.get(k);
         const text = String(it.text || '').replace(/\s*\n\s*/g, ' ').trim();
         if (text) r.labels.set(text, (r.labels.get(text) || 0) + 1);
-        r.docs.add(d.id);
+        if (!r.flows.has(d.id)) r.flows.set(d.id, new Map());
+        if (text) r.flows.get(d.id).set(text, (r.flows.get(d.id).get(text) || 0) + 1);
       });
     });
     const out = [...map.values()].map((r) => ({
-      from: r.from, to: r.to, docs: [...r.docs],
-      labels: [...r.labels].map(([text, n]) => ({ text, n })).sort((x, y) => y.n - x.n || x.text.localeCompare(y.text)),
+      from: r.from, to: r.to, docs: [...r.flows.keys()], labels: counted(r.labels),
+      flows: [...r.flows].map(([doc, texts]) => ({ doc, texts: counted(texts) })),
     }));
     out.unlinked = unlinked;
     return out;
+  }
+
+  /** Map(metin → sayı) → [{ text, n }] çoktan aza */
+  const counted = (m) => [...m].map(([text, n]) => ({ text, n })).sort((x, y) => y.n - x.n || x.text.localeCompare(y.text));
+  /** [{ doc, texts }] listelerini diyagrama göre birleştirir */
+  function mergeFlows(into, flows) {
+    flows.forEach((f) => {
+      if (!into.has(f.doc)) into.set(f.doc, new Map());
+      const m = into.get(f.doc);
+      f.texts.forEach((t) => m.set(t.text, (m.get(t.text) || 0) + t.n));
+    });
   }
 
   /** Öğenin C4 düzeyi */
@@ -111,10 +123,10 @@
       addNode(a, !inside(r.from));
       addNode(b, !inside(r.to));
       const k = a + '>' + b;
-      if (!edges.has(k)) edges.set(k, { from: a, to: b, labels: new Map(), docs: new Set() });
+      if (!edges.has(k)) edges.set(k, { from: a, to: b, labels: new Map(), flows: new Map() });
       const e = edges.get(k);
       r.labels.forEach((l) => e.labels.set(l.text, (e.labels.get(l.text) || 0) + l.n));
-      r.docs.forEach((d) => e.docs.add(d));
+      mergeFlows(e.flows, r.flows || r.docs.map((doc) => ({ doc, texts: [] })));
     });
     return {
       focus: focus ? ix.byId.get(focus) : null,
@@ -122,8 +134,8 @@
       path: focusPath.map((id) => ix.byId.get(id)),
       nodes: [...nodes.values()],
       edges: [...edges.values()].map((e) => ({
-        from: e.from, to: e.to, docs: [...e.docs],
-        labels: [...e.labels].map(([text, n]) => ({ text, n })).sort((x, y) => y.n - x.n || x.text.localeCompare(y.text)),
+        from: e.from, to: e.to, docs: [...e.flows.keys()], labels: counted(e.labels),
+        flows: [...e.flows].map(([doc, texts]) => ({ doc, texts: counted(texts) })),
       })),
     };
   }
@@ -139,7 +151,7 @@
    *   name(item) → görünen ad, roleOf(item) → { type, color }, levelLabel(level) → "[Sistem]" gibi,
    *   maxLabels (kenar başına gösterilen mesaj sayısı), more(n) → "+3", fill(color, outer) → dolgu rengi
    * }
-   * Döner: { code, ids: Map(mermaidId → öğe id) }
+   * Döner: { code, ids: Map(mermaidId → öğe id) } — kenarlar Mermaid'de "L_<from>_<to>_<n>" kimliğini alır
    */
   function toMermaid(v, opts) {
     const o = Object.assign({ maxLabels: 2, more: (n) => '+' + n, fill: (c) => c, levelLabel: (l) => '[' + l + ']' }, opts);
@@ -177,7 +189,13 @@
     return { code: out.join('\n') + '\n', ids };
   }
 
-  const api = { index, relations, view, toMermaid, levelOf };
+  /** Öğe ve tüm alt öğelerinin kimlikleri */
+  function subtree(items, id) {
+    const ix = index(items);
+    return new Set(items.filter((x) => ix.path(x.id).includes(id)).map((x) => x.id));
+  }
+
+  const api = { index, relations, view, toMermaid, levelOf, subtree };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SeqC4 = api;
 })(typeof window !== 'undefined' ? window : globalThis);

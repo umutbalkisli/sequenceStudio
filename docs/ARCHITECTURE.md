@@ -195,6 +195,11 @@ item shows its children inside a boundary, and the neighbors they talk to outsid
 the common ancestor (a sibling container in C3, another system in C2). The result is rendered as a Mermaid
 flowchart. Sequence diagrams themselves never get extra boxes.
 
+Each edge also carries the flows it comes from (`flows: [{ doc, texts }]`). Mermaid gives edges the id
+`L_<from>_<to>_<n>`; the screen lays a wide transparent hit path over each thin line, so clicking an arrow
+or its label lists those flows. Picking one opens the flow and selects the first message of that
+relationship.
+
 ## State and storage
 
 `Seq.core.S` holds the runtime state: `docs`, `folders`, `roles`, `catalog`, `settings`, the active `doc`, its

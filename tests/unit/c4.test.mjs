@@ -62,6 +62,13 @@ describe('C4 görünümü', () => {
     assert.deepEqual(v.path.map((x) => x.id), ['pay', 'ledger']);
   });
 
+  test('kenar, geçtiği akışları ve her akıştaki mesajları taşır; alt öğeler kümesi', () => {
+    const v = C4.view(ITEMS, rels, null, roleType);
+    const e = v.edges.find((x) => x.from === 'orders' && x.to === 'pay');
+    assert.deepEqual(e.flows, [{ doc: 'd1', texts: [{ text: 'öde', n: 2 }] }, { doc: 'd2', texts: [{ text: 'bakiye', n: 1 }] }]);
+    assert.deepEqual([...C4.subtree(ITEMS, 'pay')].sort(), ['gw', 'ledger', 'ledger-api', 'ledger-db', 'pay']);
+  });
+
   test('ilişkisi olmayan iç öğeler de gösterilir; Mermaid kodu sınır ve kenar etiketleriyle üretilir', () => {
     const v = C4.view(ITEMS, [], 'pay', roleType);
     assert.deepEqual(nodes(v), ['gw:component', 'ledger:container']);
