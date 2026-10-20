@@ -76,7 +76,8 @@
     else cfg.theme = t;
     mermaid.initialize(cfg);
     el.canvas.style.setProperty('--paper-bg', PAPER_BG[t] || '#ffffff');
-    $('#archScreen').style.setProperty('--paper-bg', PAPER_BG[t] || '#ffffff');
+    // Sayfanın geneli (mimari ekranı, sunum modu) aynı kâğıt rengini kullanır
+    document.documentElement.style.setProperty('--paper-bg', PAPER_BG[t] || '#ffffff');
     events.emit('theme:changed');
   }
 

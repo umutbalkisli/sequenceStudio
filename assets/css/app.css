@@ -1217,3 +1217,26 @@ body.screen-arch .tb-right .btn-group, body.screen-arch #btnTemplates, body.scre
 .cm-kind { margin-left: auto; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 650; color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel)); white-space: nowrap; }
 .cm-kind.exact { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--panel)); }
 .link-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); font-weight: 600; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+
+/* ---------- Sunum modu ---------- */
+.pres-root { position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column; background: var(--bg); animation: fade .18s; }
+.pres-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.pres-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; }
+.pres-title .ic { width: 18px; height: 18px; color: var(--accent); flex: none; }
+.pres-title b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pres-controls { display: flex; align-items: center; gap: 4px; }
+.pres-counter { min-width: 64px; text-align: center; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.pres-btn.on { background: var(--accent-soft); color: var(--accent); }
+.pres-speed { width: 76px; }
+.pres-stage { flex: 1; min-height: 0; overflow: auto; padding: 28px; display: flex; justify-content: center; align-items: flex-start; cursor: pointer; }
+.pres-paper { margin: auto; background: var(--paper-bg, #fff); border-radius: 14px; padding: 24px; box-shadow: var(--shadow-lg); border: 1px solid var(--border); max-width: 100%; }
+.pres-paper svg { display: block; max-width: none; }
+.pres-curtain { fill: var(--paper-bg, #fff); opacity: .86; transition: y .35s var(--ease), height .35s var(--ease); pointer-events: none; }
+.pres-curtain.hide { opacity: 1; }
+.pres-paper .pres-current { filter: drop-shadow(0 0 3px var(--accent-ring)); }
+.pres-paper [data-et="message"].pres-current { stroke-width: 2.6px !important; }
+.pres-paper text.pres-current, .pres-paper text.pres-current tspan { font-weight: 700 !important; }
+.pres-paper g[data-et="note"].pres-current rect { stroke: var(--accent) !important; stroke-width: 2px !important; }
+.pres-caption { padding: 14px 20px 18px; text-align: center; font-size: 18px; font-weight: 600; color: var(--text); background: var(--panel); border-top: 1px solid var(--border); min-height: 58px; }
+.pres-caption.muted { color: var(--muted); font-weight: 500; font-size: 15px; }
+@media (max-width: 760px) { .pres-speed, .pres-controls select { display: none; } .pres-caption { font-size: 15px; } }

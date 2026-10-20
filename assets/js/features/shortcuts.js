@@ -43,6 +43,7 @@
     { keys: ['b'], mod: true, alt: false, run: () => Seq.layout.setEditorCollapsed(!S.settings.editorCollapsed) },
     { keys: ['d'], mod: true, alt: false, when: () => Seq.layout.currentView() === 'builder' && !!S.selected, run: () => Seq.flow.duplicateNode(S.selected) },
     { keys: ['f'], mod: false, alt: false, typing: false, when: () => !modalOpen(), run: () => Seq.layout.toggleFullscreen() },
+    { keys: ['p'], mod: false, alt: false, typing: false, when: () => !modalOpen(), run: () => Seq.present.open() },
     { keys: ['arrowup', 'arrowdown'], alt: true, when: editingStep, run: (e) => Seq.flow.moveNodeBy(S.selected, e.key === 'ArrowUp' ? -1 : 1) },
     {
       keys: ['delete', 'backspace'], typing: false,

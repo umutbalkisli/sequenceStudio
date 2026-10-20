@@ -205,6 +205,15 @@ Each edge also carries the flows it comes from (`flows: [{ doc, texts }]`). Merm
 or its label lists those flows. Picking one opens the flow and selects the first message of that
 relationship.
 
+## Presentation mode
+
+`features/present.js` plays the current flow step by step on a copy of the preview SVG, so colors, tones,
+references and the legend look the same. In a sequence diagram time runs top to bottom, so instead of
+re-rendering per step, the steps (`[data-et="message"]` lines and note groups) are sorted by their y position,
+and a "curtain" rect covers everything below the current step. Upcoming messages, the rest of activation
+bars and blocks that haven't started yet are revealed as the curtain moves down. While it is open, the module
+handles every key itself, so the app shortcuts don't run.
+
 ## State and storage
 
 `Seq.core.S` holds the runtime state: `docs`, `folders`, `roles`, `catalog`, `settings`, the active `doc`, its

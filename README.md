@@ -40,6 +40,7 @@ Mermaid is a good format for keeping diagrams next to code, but writing larger s
   - Theme, white or transparent background.
   - Export a whole folder, including subfolders, as one ZIP in any of these formats.
   - Images and code can also be copied to the clipboard.
+- **Presentation mode:** Play a flow full screen, message by message, for meetings (<kbd>P</kbd> or the ▶ button in the preview). Upcoming steps are dimmed or hidden, the current message is highlighted and read out in a caption; use the arrow keys, Space or a click to advance, or autoplay at a chosen pace. It starts from the selected message if there is one.
 - **Sharing:** A share link stores the compressed diagram in the URL itself, so no server is involved.
 - **Workspace**
   - Multiple diagrams with autosave, organized in folders and subfolders (drag and drop).
