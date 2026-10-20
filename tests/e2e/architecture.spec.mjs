@@ -139,3 +139,73 @@ test('tek kök grup kullanan katalogda C1 grubun içindeki sistemleri gösterir;
   await expect(page.locator('#archCrumbs .crumb')).toHaveText(['Tüm sistemler', 'Ödeme sistemi']);
   await expect.poll(() => nodes(page)).toEqual(['gw', 'orders']);
 });
+
+test('yakınlaştırma: çubuk, ⌘/Ctrl + tekerlek, klavye, sığdır; boş alandan sürükleyerek kaydırma', async ({ context }) => {
+  await seed(context, { docs: DOCS(), current: 'a', catalog: CATALOG, settings: { screen: 'arch' } });
+  const page = await openApp(context);
+  await expect.poll(() => nodes(page)).toEqual(['customer', 'orders', 'pay']);
+  const val = page.locator('#archZoomVal');
+  const width = () => page.locator('#archCanvas svg').evaluate((s) => s.getBoundingClientRect().width);
+  const fitText = await val.textContent();
+  const w0 = await width();
+  await page.locator('#archZoomIn').click();
+  await expect(val).not.toHaveText(fitText);
+  expect(await width()).toBeCloseTo(w0 * 1.2, 0);
+  await val.click();
+  await expect(val).toHaveText('100%');
+  // Klavye
+  await page.keyboard.press('+');
+  await expect(val).toHaveText('120%');
+  await page.keyboard.press('-');
+  await expect(val).toHaveText('100%');
+  await page.keyboard.press('0');
+  await expect(val).toHaveText(fitText);
+  // ⌘/Ctrl + tekerlek
+  await page.locator('#archCanvas').hover();
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -400);
+  await page.keyboard.up('Control');
+  await expect.poll(async () => parseInt(await val.textContent(), 10)).toBeGreaterThan(parseInt(fitText, 10));
+  // Büyütünce kaydırılabilir; boş alandan sürükleme kaydırır
+  for (let i = 0; i < 4; i++) await page.locator('#archZoomIn').click();
+  const box = await page.locator('#archCanvas').boundingBox();
+  const scroll = () => page.locator('#archCanvas').evaluate((c) => [c.scrollLeft, c.scrollTop]);
+  const before = await scroll();
+  await page.mouse.move(box.x + 8, box.y + box.height - 8);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 8 + 120, box.y + box.height - 8 - 80, { steps: 5 });
+  await page.mouse.up();
+  const after = await scroll();
+  expect(after[0] + after[1]).not.toBe(before[0] + before[1]);
+  // Yeni düzeye geçince görünüme yeniden sığdırılır
+  await page.locator('.arch-node[data-item="pay"]').click();
+  await page.locator('.dropdown .dd-item', { hasText: 'İçine gir' }).click();
+  await expect.poll(async () => parseInt(await val.textContent(), 10)).toBeLessThanOrEqual(125);
+});
+
+test('draw.io dışa aktarma: sınır kapsayıcı, iç düğümler onun içinde, oklar düğümlere bağlı', async ({ context }) => {
+  await seed(context, { docs: DOCS(), current: 'a', catalog: CATALOG, settings: { screen: 'arch', archFocus: 'pay' } });
+  const page = await openApp(context);
+  await expect.poll(() => nodes(page)).toEqual(['gw', 'ledger', 'orders']);
+  const file = await download(page, () => page.locator('#archExport [data-fmt="drawio"]').click());
+  expect(file.name).toBe('mimari - Ödeme sistemi.drawio');
+  const xml = file.text();
+  expect(xml).toMatch(/<diagram name="Ödeme sistemi"/);
+  expect(xml).toMatch(/<mxCell id="focus" value="&lt;b&gt;Ödeme sistemi&lt;\/b&gt; \[Sistem\]"[^>]*container=1;/);
+  const cells = [...xml.matchAll(/<mxCell id="(n\d+)" value="&lt;b&gt;([^&]+)&lt;\/b&gt;[^"]*" style="([^"]*)" vertex="1" parent="(\w+)"><mxGeometry x="(-?\d+)" y="(-?\d+)" width="(\d+)" height="(\d+)"/g)]
+    .map((m) => ({ id: m[1], name: m[2], style: m[3], parent: m[4], x: +m[5], y: +m[6], w: +m[7], h: +m[8] }));
+  const by = Object.fromEntries(cells.map((c) => [c.name, c]));
+  expect(by['Ödeme Gateway'].parent).toBe('focus');
+  expect(by['Ledger Service'].parent).toBe('focus');
+  expect(by['Sipariş sistemi'].parent).toBe('1');
+  expect(by['Sipariş sistemi'].style).toContain('dashed=1');
+  const focus = /id="focus"[^>]*><mxGeometry x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/.exec(xml).slice(1).map(Number);
+  // İç düğümler sınırın içine sığar (göreli konum)
+  [by['Ödeme Gateway'], by['Ledger Service']].forEach((c) => {
+    expect(c.x).toBeGreaterThanOrEqual(0);
+    expect(c.x + c.w).toBeLessThanOrEqual(focus[2] + 1);
+    expect(c.y + c.h).toBeLessThanOrEqual(focus[3] + 1);
+  });
+  expect(xml).toContain(`source="${by['Sipariş sistemi'].id}" target="${by['Ödeme Gateway'].id}"`);
+  expect(xml).toContain(`source="${by['Ödeme Gateway'].id}" target="${by['Ledger Service'].id}"`);
+});

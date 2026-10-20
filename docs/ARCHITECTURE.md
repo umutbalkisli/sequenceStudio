@@ -204,6 +204,11 @@ and systems. Zooming into an item shows its children inside a boundary, and the 
 the common ancestor (a sibling container in C3, another system in C2). The result is rendered as a Mermaid
 flowchart. Sequence diagrams themselves never get extra boxes.
 
+Zoom resizes the SVG itself, so it stays crisp and the scroll container keeps working; a new level is fitted
+to the view. `SeqC4.toDrawio(view, layout)` writes an editable draw.io file. The layout (box positions)
+is measured from the rendered SVG, the boundary becomes a container with the inner boxes as its children,
+and edges are connectors with a source and target.
+
 Each edge also carries the flows it comes from (`flows: [{ doc, texts }]`). Mermaid gives edges the id
 `L_<from>_<to>_<n>`; the screen lays a wide transparent hit path over each thin line, so clicking an arrow
 or its label lists those flows. Picking one opens the flow and selects the first message of that

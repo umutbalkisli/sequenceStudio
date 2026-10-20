@@ -133,3 +133,30 @@ describe('C4 türleri', () => {
     assert.equal(C4.placementIssue('person', null), null);
   });
 });
+
+describe('C4 → draw.io', () => {
+  test('sınır kapsayıcı, iç düğümler onun çocukları (göreli konum), dış düğümler kesikli, oklar bağlı', () => {
+    const v = C4.view(ITEMS, rels, 'pay', roleType);
+    const layout = {
+      focus: { x: 300, y: 40, w: 500, h: 300 },
+      nodes: new Map([['gw', { x: 340, y: 100, w: 140, h: 60 }], ['ledger', { x: 600, y: 200, w: 160, h: 70 }], ['orders', { x: 20, y: 120, w: 150, h: 60 }]]),
+    };
+    const xml = C4.toDrawio(v, layout, {
+      name: (x) => x.name + (x.id === 'gw' ? ' <&>' : ''), roleOf: (x) => ({ type: roleType(x.role), color: '#2fbf7f' }),
+      levelLabel: (l) => '[' + l + ']', title: 'Ödeme', background: '#ffffff',
+    });
+    assert.match(xml, /^<mxfile host="SequenceStudio"/);
+    assert.match(xml, /<diagram name="Ödeme"/);
+    assert.match(xml, /background="#ffffff"/);
+    assert.match(xml, /<mxCell id="focus" value="&lt;b&gt;Ödeme&lt;\/b&gt; \[system\]" style="[^"]*container=1;[^"]*" vertex="1" parent="1"><mxGeometry x="300" y="40" width="500" height="300"/);
+    const cell = (name) => xml.split('\n').find((l) => l.includes(name));
+    // İç düğüm sınıra göre konumlanır; ad kaçışlı
+    assert.match(cell('Gateway'), /parent="focus"><mxGeometry x="40" y="60" width="140" height="60"/);
+    assert.match(cell('Gateway'), /Gateway &amp;lt;&amp;amp;&amp;gt;/);
+    // Dış düğüm sayfaya göre ve kesikli
+    assert.match(cell('Sipariş'), /dashed=1;[^"]*" vertex="1" parent="1"><mxGeometry x="20" y="120"/);
+    const ids = Object.fromEntries([...xml.matchAll(/<mxCell id="(n\d+)" value="&lt;b&gt;([^&]+)/g)].map((m) => [m[2].trim(), m[1]]));
+    assert.match(xml, new RegExp(`edge="1" parent="1" source="${ids['Sipariş']}" target="${ids.Gateway}"`));
+    assert.equal((xml.match(/edge="1"/g) || []).length, v.edges.length);
+  });
+});

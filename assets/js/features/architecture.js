@@ -2,7 +2,8 @@
  *
  * Üst bardaki "Akış / Mimari" geçişiyle açılan ikinci ekran. Katalog hiyerarşisini ve sekans diyagramlarından
  * türetilen ilişkileri C1 (sistemler) → C2 (sistemin içi) → C3 (konteynerin içi) olarak çizer; bir öğeye
- * tıklayıp içine girilir; bir kenara tıklayınca o ilişkinin geçtiği akışlar listelenir. Mantık lib/c4.js'tedir (SeqC4); bu modül ekranı, gezinmeyi ve dışa aktarmayı yönetir.
+ * tıklayıp içine girilir; bir kenara tıklayınca o ilişkinin geçtiği akışlar listelenir. Yakınlaştırma (çubuk,
+ * ⌘/Ctrl + tekerlek, + / - / 0), boş alandan sürükleyerek kaydırma; SVG, PNG, Mermaid ve draw.io dışa aktarma. Mantık lib/c4.js'tedir (SeqC4); bu modül ekranı, gezinmeyi ve dışa aktarmayı yönetir.
  */
 (function (Seq) {
   'use strict';
@@ -11,7 +12,9 @@
 
   let ready = false;
   let renderSeq = 0;
-  let last = null; // { view, ids, rels }
+  let last = null; // { view, ids, rels, code }
+  // Yakınlaştırma: z ölçek; fitNext → bir sonraki çizimde görünüme sığdır (yeni düzey açılınca)
+  const zoom = { z: 1, fitNext: true, w: 0, h: 0 };
   const screen = () => (S.settings.screen === 'arch' ? 'arch' : 'seq');
   const isOpen = () => document.body.classList.contains('screen-arch');
 
@@ -30,7 +33,7 @@
   const paperBg = () => Seq.theme.PAPER_BG[Seq.theme.mmThemeName()] || '#ffffff';
   /** Geçerli odak (yoksa C1); katalogdan silinmişse en üste dönülür */
   const focusId = () => (Seq.catalog.itemById(S.settings.archFocus) ? S.settings.archFocus : null);
-  function setFocus(id) { S.settings.archFocus = id || null; saveSettings(); render(); }
+  function setFocus(id) { S.settings.archFocus = id || null; saveSettings(); zoom.fitNext = true; render(); }
 
   // ---------------------------------------------------------------------------
   // Çizim
@@ -62,6 +65,11 @@
       const paper = h('div', { class: 'paper arch-paper' });
       paper.innerHTML = svg;
       canvas.append(paper);
+      const el2 = paper.querySelector('svg');
+      const vb = el2.viewBox.baseVal;
+      zoom.w = vb.width; zoom.h = vb.height;
+      el2.removeAttribute('width'); el2.removeAttribute('height'); el2.style.maxWidth = 'none';
+      if (zoom.fitNext) { zoom.fitNext = false; fitZoom(); } else applyZoom();
       wireNodes(paper.querySelector('svg'), v, ids);
       wireEdges(paper.querySelector('svg'), v, ids);
     } catch (err) {
@@ -210,7 +218,97 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Dışa aktarma (SVG, PNG, Mermaid)
+  // Yakınlaştırma ve kaydırma
+  // ---------------------------------------------------------------------------
+  const Z_MIN = 0.2, Z_MAX = 3;
+  function applyZoom() {
+    const svg = $('#archCanvas svg');
+    if (svg && zoom.w) { svg.style.width = zoom.w * zoom.z + 'px'; svg.style.height = zoom.h * zoom.z + 'px'; }
+    $('#archZoomVal').textContent = Math.round(zoom.z * 100) + '%';
+  }
+  /** Ölçeği değiştirir; (cx, cy) tuvalde sabit kalacak nokta (verilmezse görünümün ortası) */
+  function setZoom(z, cx, cy) {
+    const canvas = $('#archCanvas');
+    const nz = Math.max(Z_MIN, Math.min(Z_MAX, z));
+    if (cx == null) { cx = canvas.clientWidth / 2; cy = canvas.clientHeight / 2; }
+    const k = nz / zoom.z;
+    const sx = canvas.scrollLeft + cx, sy = canvas.scrollTop + cy;
+    zoom.z = nz;
+    applyZoom();
+    canvas.scrollLeft = sx * k - cx;
+    canvas.scrollTop = sy * k - cy;
+  }
+  /** Görünüme sığdırır (küçük çizimler en fazla %125'e büyütülür) */
+  function fitZoom() {
+    const canvas = $('#archCanvas');
+    if (!zoom.w) return;
+    const pad = 48 + 42; // tuval ve kâğıt kenar boşlukları
+    zoom.z = Math.max(Z_MIN, Math.min(1.25, (canvas.clientWidth - pad) / zoom.w, (canvas.clientHeight - pad) / zoom.h));
+    applyZoom();
+    canvas.scrollTo(0, 0);
+  }
+  function wireZoom() {
+    const canvas = $('#archCanvas');
+    $('#archZoomIn').addEventListener('click', () => setZoom(zoom.z * 1.2));
+    $('#archZoomOut').addEventListener('click', () => setZoom(zoom.z / 1.2));
+    $('#archZoomVal').addEventListener('click', () => setZoom(1));
+    $('#archZoomFit').addEventListener('click', fitZoom);
+    // ⌘/Ctrl + tekerlek (ve dokunmatik yüzeyde kıstırma): imlecin altındaki nokta sabit kalır
+    canvas.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const r = canvas.getBoundingClientRect();
+      setZoom(zoom.z * Math.exp(-e.deltaY * 0.0025), e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false });
+    // Boş alandan sürükleyerek kaydırma (düğüm ve oklar tıklanabilir kalır)
+    let drag = null;
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target.closest('.arch-node, .arch-edge, .arch-edge-hit, button, a')) return;
+      drag = { x: e.clientX, y: e.clientY, sl: canvas.scrollLeft, st: canvas.scrollTop, moved: false };
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+      drag.moved = true;
+      canvas.classList.add('panning');
+      canvas.scrollLeft = drag.sl - dx;
+      canvas.scrollTop = drag.st - dy;
+    });
+    const end = () => { drag = null; canvas.classList.remove('panning'); };
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
+    // Klavye: + / - / 0 (yalnızca mimari ekranında, yazı yazmıyorken)
+    const inArch = () => isOpen() && document.getElementById('modalRoot').hidden;
+    Seq.shortcuts.add({ keys: ['+', '='], mod: false, alt: false, typing: false, global: true, when: inArch, run: () => setZoom(zoom.z * 1.2) });
+    Seq.shortcuts.add({ keys: ['-', '_'], mod: false, alt: false, typing: false, global: true, when: inArch, run: () => setZoom(zoom.z / 1.2) });
+    Seq.shortcuts.add({ keys: ['0'], mod: false, alt: false, typing: false, global: true, when: inArch, run: fitZoom });
+  }
+
+  // ---------------------------------------------------------------------------
+  // draw.io: konumlar ekranda çizilmiş yerleşimden alınır
+  // ---------------------------------------------------------------------------
+  function drawioLayout(svg) {
+    const vb = svg.viewBox.baseVal;
+    const toUser = svg.getScreenCTM().inverse();
+    const rectOf = (g) => {
+      const b = g.getBBox();
+      const m = toUser.multiply(g.getScreenCTM());
+      const p1 = new DOMPoint(b.x, b.y).matrixTransform(m), p2 = new DOMPoint(b.x + b.width, b.y + b.height).matrixTransform(m);
+      return { x: Math.min(p1.x, p2.x) - vb.x + 20, y: Math.min(p1.y, p2.y) - vb.y + 20, w: Math.abs(p2.x - p1.x), h: Math.abs(p2.y - p1.y) };
+    };
+    const nodes = new Map();
+    svg.querySelectorAll('g.arch-node').forEach((g) => {
+      const shape = g.querySelector('rect, path, polygon, ellipse, circle') || g;
+      nodes.set(g.dataset.item, rectOf(shape));
+    });
+    const cluster = svg.querySelector('g.cluster rect');
+    return { nodes, focus: cluster ? rectOf(cluster) : null };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dışa aktarma (SVG, PNG, Mermaid, draw.io)
   // ---------------------------------------------------------------------------
   function fileBase() {
     const f = last && last.view.focus;
@@ -221,6 +319,19 @@
     if (!last || !src) return toast(T('exp.nothing'), 'err');
     try {
       if (kind === 'mmd') return downloadBlob(new Blob([last.code], { type: 'text/plain;charset=utf-8' }), fileBase() + '.mmd');
+      if (kind === 'drawio') {
+        const bg = paperBg();
+        const xml = C4().toDrawio(last.view, drawioLayout(src), {
+          name: (x) => oneLine(Seq.catalog.displayName(x)),
+          roleOf: (x) => Seq.catalog.lookOf(x),
+          levelLabel: (l) => '[' + T('c4.' + l) + ']',
+          more: (n) => T('arch.more', { n }),
+          fill: (c, outer) => mix(c, bg, outer ? 0.05 : 0.14),
+          title: last.view.focus ? oneLine(Seq.catalog.displayName(last.view.focus)) : T('arch.top'),
+          background: Seq.export.exportBg(),
+        });
+        return downloadBlob(new Blob([xml], { type: 'application/vnd.jgraph.mxfile;charset=utf-8' }), fileBase() + '.drawio');
+      }
       const built = Seq.export.buildExportSvg(Seq.export.exportBg(), src);
       if (kind === 'svg') return downloadBlob(new Blob([built.markup], { type: 'image/svg+xml;charset=utf-8' }), fileBase() + '.svg');
       downloadBlob(await Seq.export.svgToPngBlob(built.markup, built.w, built.h, Seq.export.effectiveScale(built.w, built.h)), fileBase() + '.png');
@@ -229,6 +340,7 @@
 
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
   function init() {
+    wireZoom();
     document.querySelectorAll('#screenSeg button').forEach((b) => b.addEventListener('click', () => setScreen(b.dataset.screen)));
     document.querySelectorAll('#archExport [data-fmt]').forEach((b) => b.addEventListener('click', () => exportAs(b.dataset.fmt)));
     $('#archEditCatalog').addEventListener('click', () => Seq.library.open('catalog'));

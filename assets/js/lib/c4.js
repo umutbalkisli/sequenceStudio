@@ -219,13 +219,75 @@
     return { code: out.join('\n') + '\n', ids };
   }
 
+  // ---- draw.io ----
+  const xmlEsc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const htmlEsc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const DRAWIO_SHAPE = {
+    actor: 'rounded=1;arcSize=50;', database: 'shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=8;',
+    queue: 'shape=process;size=0.06;', collections: 'shape=process;size=0.06;',
+  };
+  /**
+   * Görünümü düzenlenebilir draw.io dosyasına çevirir. Konumlar ekranda çizilmiş yerleşimden gelir:
+   *   layout: { nodes: Map(öğe id → { x, y, w, h }), focus: { x, y, w, h } | null }
+   * Sınır (odak) bir kapsayıcıdır; içindeki düğümler onun çocuklarıdır (birlikte taşınır). Oklar kaynak ve
+   * hedefe bağlı bağlayıcılardır; draw.io yolları kendisi çizer.
+   * opts: toMermaid ile aynı (name, roleOf, levelLabel, maxLabels, more, fill) + { title, background }
+   */
+  function toDrawio(v, layout, opts) {
+    const o = Object.assign({ maxLabels: 2, more: (n) => '+' + n, fill: (c) => c, levelLabel: (l) => '[' + l + ']', title: 'C4' }, opts);
+    const cells = [];
+    const ids = new Map();
+    v.nodes.forEach((n, i) => ids.set(n.id, 'n' + i));
+    const fb = layout.focus;
+    if (v.focus && fb) {
+      const label = '<b>' + htmlEsc(o.name(v.focus)) + '</b> ' + htmlEsc(o.levelLabel(v.focusLevel));
+      cells.push(`<mxCell id="focus" value="${xmlEsc(label)}" style="rounded=1;arcSize=2;html=1;dashed=1;dashPattern=8 4;fillColor=none;strokeColor=#8a93a6;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;container=1;collapsible=0;" vertex="1" parent="1"><mxGeometry x="${Math.round(fb.x)}" y="${Math.round(fb.y)}" width="${Math.round(fb.w)}" height="${Math.round(fb.h)}" as="geometry"/></mxCell>`);
+    }
+    v.nodes.forEach((n) => {
+      const g = layout.nodes.get(n.id);
+      if (!g) return;
+      const r = o.roleOf(n.item) || {};
+      const c = r.color || '#8a93a6';
+      const shape = DRAWIO_SHAPE[n.level === 'person' ? 'actor' : r.type] || 'rounded=1;arcSize=12;';
+      const lines = ['<b>' + htmlEsc(o.name(n.item)) + '</b>', htmlEsc(o.levelLabel(n.level))];
+      if (n.item.desc) lines.push('<font style="font-size:10px">' + htmlEsc(n.item.desc) + '</font>');
+      const style = shape + `whiteSpace=wrap;html=1;fillColor=${o.fill(c, n.outer)};strokeColor=${c};strokeWidth=1.5;` + (n.outer ? 'dashed=1;dashPattern=5 3;' : '');
+      // Sınırın içindekiler sınıra göre konumlanır
+      const inner = v.focus && fb && !n.outer;
+      const x = inner ? g.x - fb.x : g.x, y = inner ? g.y - fb.y : g.y;
+      cells.push(`<mxCell id="${ids.get(n.id)}" value="${xmlEsc(lines.join('<br>'))}" style="${style}" vertex="1" parent="${inner ? 'focus' : '1'}"><mxGeometry x="${Math.round(x)}" y="${Math.round(y)}" width="${Math.round(g.w)}" height="${Math.round(g.h)}" as="geometry"/></mxCell>`);
+    });
+    v.edges.forEach((e, i) => {
+      if (!layout.nodes.has(e.from) || !layout.nodes.has(e.to)) return;
+      const shown = e.labels.slice(0, o.maxLabels).map((l) => htmlEsc(l.text));
+      if (e.labels.length > o.maxLabels) shown.push(htmlEsc(o.more(e.labels.length - o.maxLabels)));
+      cells.push(`<mxCell id="e${i}" value="${xmlEsc(shown.join('<br>'))}" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeColor=#6b7280;fontSize=11;labelBackgroundColor=default;" edge="1" parent="1" source="${ids.get(e.from)}" target="${ids.get(e.to)}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
+    });
+    const all = [...layout.nodes.values()].concat(fb ? [fb] : []);
+    const pageW = Math.ceil(Math.max(800, ...all.map((g) => g.x + g.w + 40)));
+    const pageH = Math.ceil(Math.max(600, ...all.map((g) => g.y + g.h + 40)));
+    const bg = o.background && o.background !== 'transparent' ? ` background="${xmlEsc(o.background)}"` : '';
+    return `<mxfile host="SequenceStudio" agent="Sequence Studio" type="device">
+  <diagram name="${xmlEsc(o.title)}" id="c4-${Date.now().toString(36)}">
+    <mxGraphModel dx="${pageW}" dy="${pageH}" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="${pageW}" pageHeight="${pageH}"${bg} math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        ${cells.join('\n        ')}
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+`;
+  }
+
   /** Öğe ve tüm alt öğelerinin kimlikleri */
   function subtree(items, id) {
     const ix = index(items);
     return new Set(items.filter((x) => ix.path(x.id).includes(id)).map((x) => x.id));
   }
 
-  const api = { KINDS, PARENTS, index, relations, view, toMermaid, levelOf, inferKind, defaultKind, placementIssue, subtree };
+  const api = { KINDS, PARENTS, index, relations, view, toMermaid, toDrawio, levelOf, inferKind, defaultKind, placementIssue, subtree };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SeqC4 = api;
 })(typeof window !== 'undefined' ? window : globalThis);
