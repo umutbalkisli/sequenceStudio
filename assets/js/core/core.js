@@ -86,7 +86,7 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
   };
 
-  const DEFAULT_SETTINGS = { appTheme: 'system', mmTheme: 'auto', mirror: true, colorize: true, editorCollapsed: false, editorW: null, view: 'builder', pinParts: true, palCompact: false, legend: true, exp: { format: 'png', scale: 2, bg: 'theme' } };
+  const DEFAULT_SETTINGS = { appTheme: 'system', mmTheme: 'auto', mirror: true, editorCollapsed: false, editorW: null, view: 'builder', pinParts: true, palCompact: false, legend: true, exp: { format: 'png', scale: 2, bg: 'theme' } };
 
   // ---------------------------------------------------------------------------
   // Durum
@@ -136,7 +136,7 @@
     partCount: $('#partCount'), stepCount: $('#stepCount'),
     code: $('#code'), codeHl: $('#codeHl'), gutter: $('#gutter'), codeStatus: $('#codeStatus'),
     viewport: $('#viewport'), canvas: $('#canvas'), emptyState: $('#emptyState'), renderError: $('#renderError'),
-    zoomVal: $('#zoomVal'), mmTheme: $('#mmTheme'), mirror: $('#optMirror'), colorize: $('#optColorize'), legend: $('#optLegend'),
+    zoomVal: $('#zoomVal'), mmTheme: $('#mmTheme'), mirror: $('#optMirror'), legend: $('#optLegend'),
     popover: $('#popover'), overlay: $('#linkOverlay'), linkPath: $('#linkPath'),
     modalRoot: $('#modalRoot'), modalTitle: $('#modalTitle'), modalBody: $('#modalBody'),
     drawer: $('#drawer'), scrim: $('#scrim'), docList: $('#docList'), fileInput: $('#fileInput'),

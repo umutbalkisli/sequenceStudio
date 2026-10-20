@@ -226,7 +226,6 @@
       el.viewport.addEventListener('pointercancel', () => { start = null; el.viewport.classList.remove('panning'); });
     })();
     window.addEventListener('resize', debounce(() => { if (S.zoom.auto) fitView(); }, 150));
-    el.colorize.addEventListener('change', () => { S.settings.colorize = el.colorize.checked; saveSettings(); scheduleRender(0); });
     el.legend.addEventListener('change', () => { S.settings.legend = el.legend.checked; saveSettings(); scheduleRender(0); });
     $('#zoomIn').addEventListener('click', () => zoomCenter(1.2));
     $('#zoomOut').addEventListener('click', () => zoomCenter(1 / 1.2));

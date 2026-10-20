@@ -11,14 +11,11 @@
    * builder'daki renklerle boyar. Mermaid'in SVG yapısı tipe göre değiştiği için
    * her şekil yatayda en yakın lifeline'ın katılımcısına atanır. Stiller satır içi
    * yazıldığından PNG/SVG dışa aktarmaya da yansır.
-   * "Renkli" kapalıyken (auto=false) yalnızca rengi elle seçilmiş katılımcılar boyanır.
    */
-  function colorizeSvg(svg, auto, model = S.model) {
+  function colorizeSvg(svg, model = S.model) {
     if (!svg) return;
     const pById = (id) => model.participants.find((p) => p.id === id);
     const colorOfM = (id) => colorOf(id, model);
-    const painted = (id) => auto || !!(pById(id) || {}).color;
-    if (!auto && !model.participants.some((p) => p.color)) return;
     const bg = Seq.theme.PAPER_BG[Seq.theme.mmThemeName()] || '#ffffff';
     const dark = hexToRgb(bg).reduce((a, v) => a + v, 0) < 384;
     const lifelines = $$('line[data-et="life-line"]', svg)
@@ -46,7 +43,7 @@
       if (cs.stroke && cs.stroke !== 'none') el.style.stroke = c;
     };
 
-    for (const l of lifelines) if (painted(l.id)) l.el.style.stroke = mix(colorOfM(l.id), bg, dark ? 0.55 : 0.5);
+    for (const l of lifelines) l.el.style.stroke = mix(colorOfM(l.id), bg, dark ? 0.55 : 0.5);
     const ACTOR_G = 'g.actor, g.actor-man, g.actor-top, g.actor-bottom, g[data-et="participant"]';
     $$('rect, circle, ellipse, path, line, polygon, polyline', svg).forEach((el) => {
       const cls = el.getAttribute('class') || '';
@@ -55,7 +52,7 @@
       const isActor = /(^|\s)actor(\s|$)/.test(cls) || !!el.closest(ACTOR_G);
       if (!isActivation && !isActor) return;
       const l = nearest(el);
-      if (!l || !painted(l.id)) return;
+      if (!l) return;
       paint(el, colorOfM(l.id), isActivation ? (dark ? 0.45 : 0.3) : (dark ? 0.28 : 0.16));
     });
   }
@@ -65,10 +62,9 @@
    * bir arka plan verir; kenarları ve etiket kutusunu aynı renge boyar. Arka
    * planlar ayrı bir katmanda en alta çizilir ki mesaj okları üstte kalsın.
    * İç içe bloklarda içteki blok dıştakinin üzerine gelir.
-   * Kullanıcının seçtiği renk (block.color) her zaman uygulanır; tip renkleri
-   * yalnızca "Renkli" açıkken (auto).
+   * Kullanıcının seçtiği renk (block.color) tip renginin yerine geçer.
    */
-  function colorizeBlocks(svg, auto, model = S.model) {
+  function colorizeBlocks(svg, model = S.model) {
     if (!svg) return;
     const bg = Seq.theme.PAPER_BG[Seq.theme.mmThemeName()] || '#ffffff';
     const dark = hexToRgb(bg).reduce((a, v) => a + v, 0) < 384;
@@ -94,7 +90,7 @@
       const lbl = $('.labelText', g);
       const type = (lbl ? lbl.textContent : '').trim().toLowerCase().replace(/_over$/, '');
       const custom = sameShape && modelBlocks[i].color;
-      const c = custom || (auto ? root.getPropertyValue('--c-' + type).trim() : '');
+      const c = custom || root.getPropertyValue('--c-' + type).trim();
       if (!/^#[0-9a-f]{3,6}$/i.test(c)) return;
       b.c = c;
       blocks.push(b);
@@ -124,7 +120,7 @@
   /**
    * Tonu seçilmiş mesajların ok çizgisini, ok ucunu ve metnini boyar. Ok uçları Mermaid'de
    * paylaşılan <marker> tanımları olduğu için her ton için bir kopya oluşturulur.
-   * Kullanıcının açık seçimi olduğundan "Renkli" anahtarından bağımsız uygulanır.
+   * Kullanıcının açık seçimidir; her zaman uygulanır.
    */
   function colorizeMessages(svg, model = S.model) {
     if (!svg) return;
@@ -171,8 +167,8 @@
   }
 
   function init() {
-    Seq.preview.addDecorator('participant-colors', (svg, c) => colorizeSvg(svg, c.settings.colorize, c.renderModel || c.model), 10);
-    Seq.preview.addDecorator('block-colors', (svg, c) => colorizeBlocks(svg, c.settings.colorize, c.renderModel || c.model), 20);
+    Seq.preview.addDecorator('participant-colors', (svg, c) => colorizeSvg(svg, c.renderModel || c.model), 10);
+    Seq.preview.addDecorator('block-colors', (svg, c) => colorizeBlocks(svg, c.renderModel || c.model), 20);
     Seq.preview.addDecorator('message-tones', (svg, c) => colorizeMessages(svg, c.renderModel || c.model), 30);
   }
 

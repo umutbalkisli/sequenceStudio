@@ -32,7 +32,6 @@
     Seq.theme.applyAppTheme();
     el.mmTheme.value = S.settings.mmTheme;
     el.mirror.checked = !!S.settings.mirror;
-    el.colorize.checked = S.settings.colorize !== false;
     el.legend.checked = S.settings.legend !== false;
     Seq.theme.configureMermaid();
     // Veri: IndexedDB (gerekirse localStorage'dan taşınır)
