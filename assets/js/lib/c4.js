@@ -8,7 +8,8 @@
  *   view(items, rels, focusId)   → { focus, nodes, edges }   focusId boşsa en üst düzey (C1)
  *   toMermaid(view, opts)        → Mermaid flowchart kodu
  *
- * Düzey öğenin yerinden çıkar: kök → sistem (rolü actor ise kişi), ara → konteyner, yaprak → bileşen.
+ * Düzey öğenin türünden gelir (grup, kişi, sistem, konteyner, bileşen); türü olmayan eski öğelerde yerinden
+ * tahmin edilir (kök → sistem ya da kişi, ara → konteyner, yaprak → bileşen). Gruplar çizilmez.
  * Tarayıcıda window.SeqC4, Node'da module.exports.
  */
 (function (root) {
@@ -81,39 +82,67 @@
     });
   }
 
-  /** Öğenin C4 düzeyi */
-  function levelOf(ix, x, roleType) {
+  // ---- Türler ----
+  // Her öğenin açık bir C4 türü vardır: grup (yalnızca düzenleme, çizilmez), kişi, sistem, konteyner, bileşen.
+  const KINDS = ['group', 'person', 'system', 'container', 'component'];
+  /** Türün beklenen üst öğe türleri (null: en üst düzey) */
+  const PARENTS = {
+    group: [null, 'group'], person: [null, 'group'], system: [null, 'group'], container: ['system'], component: ['container'],
+  };
+  /** Türü olmayan (eski) öğe için derinlikten tahmin: kök → sistem (actor ise kişi), ara → konteyner, yaprak → bileşen */
+  function inferKind(ix, x, roleType) {
     const depth = ix.path(x.id).length - 1;
-    const leaf = !ix.children(x.id).length;
     if (depth === 0) return roleType === 'actor' ? 'person' : 'system';
-    return leaf ? 'component' : 'container';
+    return ix.children(x.id).length ? 'container' : 'component';
+  }
+  /** Yeni öğe için varsayılan tür: üst öğeye ve rol tipine göre */
+  function defaultKind(parentKind, roleType) {
+    if (parentKind === 'system') return 'container';
+    if (parentKind === 'container' || parentKind === 'component') return 'component';
+    if (roleType === 'actor') return 'person';
+    return 'system';
+  }
+  /** Yerleşim uyarısı: tür, üst öğenin türüne uymuyorsa beklenen üst tür(ler)i döner, uyuyorsa null */
+  function placementIssue(kind, parentKind) {
+    const ok = PARENTS[kind] || [null];
+    return ok.includes(parentKind || null) ? null : ok;
+  }
+  /** Öğenin C4 düzeyi (türü yoksa tahmin edilir) */
+  function levelOf(ix, x, roleType) {
+    return KINDS.includes(x.kind) ? x.kind : inferKind(ix, x, roleType);
   }
 
   /**
-   * Görünüm: odak öğenin alt öğeleri (odak yoksa kökler) iç düğümlerdir; bunlarla ilişkili dış öğeler,
-   * odakla ortak atadan hemen sonraki düzeyde gösterilir (ör. C3'te komşu konteyner, C2'de diğer sistem).
-   * roleType(roleId) → katılımcı tipi (kişi ayrımı için).
+   * Görünüm. Gruplar hiçbir zaman düğüm olmaz; yollarda atlanır.
+   * Bir öğe görünümde "temsilcisi" ile gösterilir: odakla ortak atadan sonraki ilk grup olmayan öğe.
+   *  - Odak yoksa (C1): kişiler ve sistemler (gruplar ne kadar derin olursa olsun); sistem dışındaki
+   *    konteyner/bileşenler sistemlerine toplanır. Sisteme bağlanmamış (yanlış yerleşmiş) öğe kendisi görünür.
+   *  - Odak bir sistemse (C2): içindekiler (konteynerler) içeride; ilişkili dış öğeler kendi düzeylerinde dışarıda.
+   *  - Odak bir konteynerse (C3): bileşenleri içeride; kardeş konteyner ve diğer sistemler dışarıda.
+   * roleType(roleId) → katılımcı tipi (türü olmayan öğede kişi tahmini için).
    */
   function view(items, rels, focusId, roleType = () => '') {
     const ix = index(items);
-    const focus = focusId && ix.byId.get(focusId) ? focusId : null;
+    const kindOf = (id) => levelOf(ix, ix.byId.get(id), roleType(ix.byId.get(id).role));
+    const focus = focusId && ix.byId.get(focusId) && kindOf(focusId) !== 'group' ? focusId : null;
     const focusPath = focus ? ix.path(focus) : [];
     const inside = (id) => !focus || ix.path(id).includes(focus);
-    // Bir öğenin bu görünümdeki temsilcisi
     const rep = (id) => {
       const p = ix.path(id);
-      if (inside(id)) return p[focusPath.length]; // odağın doğrudan alt öğesi
       let i = 0;
-      while (i < p.length && p[i] === focusPath[i]) i++;
-      return p[i]; // ortak atadan sonraki ilk öğe
+      while (i < p.length && i < focusPath.length && p[i] === focusPath[i]) i++;
+      for (; i < p.length; i++) if (kindOf(p[i]) !== 'group') return p[i];
+      return null;
     };
+    const hasChildren = (id) => items.some((y) => y.id !== id && ix.path(y.id).includes(id) && kindOf(y.id) !== 'group');
     const nodes = new Map();
     const addNode = (id, outer) => {
       if (!id || id === focus || nodes.has(id)) return;
       const x = ix.byId.get(id);
-      nodes.set(id, { id, item: x, outer, level: levelOf(ix, x, roleType(x.role)), hasChildren: ix.children(id).length > 0 });
+      nodes.set(id, { id, item: x, outer, level: kindOf(id), hasChildren: hasChildren(id) });
     };
-    ix.children(focus).forEach((x) => addNode(x.id, false));
+    // İç düğümler: odağın içindeki her öğenin temsilcisi (ilişkisi olmasa da görünür)
+    items.forEach((x) => { if (x.id !== focus && inside(x.id)) addNode(rep(x.id), false); });
     const edges = new Map();
     rels.forEach((r) => {
       if (!ix.byId.has(r.from) || !ix.byId.has(r.to)) return;
@@ -130,8 +159,9 @@
     });
     return {
       focus: focus ? ix.byId.get(focus) : null,
-      focusLevel: focus ? levelOf(ix, ix.byId.get(focus), roleType(ix.byId.get(focus).role)) : null,
-      path: focusPath.map((id) => ix.byId.get(id)),
+      focusLevel: focus ? kindOf(focus) : null,
+      // Konum çubuğu: gruplar atlanır
+      path: focusPath.filter((id) => kindOf(id) !== 'group').map((id) => ix.byId.get(id)),
       nodes: [...nodes.values()],
       edges: [...edges.values()].map((e) => ({
         from: e.from, to: e.to, docs: [...e.flows.keys()], labels: counted(e.labels),
@@ -195,7 +225,7 @@
     return new Set(items.filter((x) => ix.path(x.id).includes(id)).map((x) => x.id));
   }
 
-  const api = { index, relations, view, toMermaid, levelOf, subtree };
+  const api = { KINDS, PARENTS, index, relations, view, toMermaid, levelOf, inferKind, defaultKind, placementIssue, subtree };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SeqC4 = api;
 })(typeof window !== 'undefined' ? window : globalThis);

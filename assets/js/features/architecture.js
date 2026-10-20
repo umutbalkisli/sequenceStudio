@@ -50,7 +50,7 @@
     const bg = paperBg();
     const { code, ids } = C4().toMermaid(v, {
       name: (x) => oneLine(Seq.catalog.displayName(x)),
-      roleOf: (x) => Seq.roles.roleById(x.role),
+      roleOf: (x) => Seq.catalog.lookOf(x),
       levelLabel: (l) => '[' + T('c4.' + l) + ']',
       more: (n) => T('arch.more', { n }),
       fill: (c, outer) => mix(c, bg, outer ? 0.05 : 0.14),

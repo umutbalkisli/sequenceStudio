@@ -5,8 +5,11 @@
  *
  *   diyagramdaki katılımcı → katalog öğesi → rol
  *
- * Öğe: { id, name, role, parent?, desc? } — rol zorunludur; görünüm (şekil, renk, ön/son ek) her zaman rolden
- * gelir. Bir üst öğe de katılımcı olarak kullanılabilir (bir diyagramda sistem tek kutu, başka birinde içindekiler).
+ * Öğe: { id, name, kind, role, parent?, desc? } — kind C4 türüdür: group (yalnızca düzenleme; çizilmez, katılımcı
+ * olamaz), person, system, container, component. Rol isteğe bağlıdır: seçilirse görünüm (şekil, renk, ön/son ek)
+ * rolden, seçilmezse türden gelir (lookOf). Üst öğe de katılımcı olabilir (bir diyagramda sistem tek kutu, başka
+ * birinde içindekiler).
+ * Yerleşim kuralları (ör. bileşen bir konteynerin içinde) zorlanmaz, katalog penceresinde uyarı olarak gösterilir.
  * Öğeye bağlı katılımcının adı öğenin (ekleriyle) adıdır; diyagramda değiştirilmediği sürece öğeyi izler.
  * Kodda: "%% @item id" (katılımcıdan önce), dışarı taşınan tanım "%% @itemdef id {json}".
  */
@@ -28,8 +31,57 @@
     return out;
   }
   const pathLabel = (id) => pathOf(id).map(displayName).join(' › ');
-  /** Öğenin görünen adı: rolün ön/son ekleriyle */
-  const displayName = (x) => Seq.roles.composeLabel(Seq.roles.roleById(x.role), x.name);
+  /** Öğenin görünen adı: rolün ön/son ekleriyle (gruplarda yalnızca ad) */
+  const displayName = (x) => (x.kind === 'group' ? x.name : Seq.roles.composeLabel(Seq.roles.roleById(x.role), x.name));
+
+  // --- C4 türü ---
+  const C4 = () => window.SeqC4;
+  const roleType = (id) => { const r = Seq.roles.roleById(id); return r ? r.type : ''; };
+  /** Öğenin türü (türü olmayan eski öğede yerinden tahmin edilir) */
+  const kindOf = (x) => (x && C4().KINDS.includes(x.kind) ? x.kind : C4().levelOf(C4().index(S.catalog), x, roleType(x.role)));
+  const isGroup = (x) => kindOf(x) === 'group';
+  // Rolü olmayan öğenin görünümü türden gelir
+  const KIND_LOOK = {
+    person: { type: 'actor', color: '#6c7cff' }, system: { type: 'participant', color: '#3a8dde' },
+    container: { type: 'participant', color: '#2fa5c9' }, component: { type: 'participant', color: '#20b8a6' },
+    group: { type: 'participant', color: '#8a93a6' },
+  };
+  /** Öğenin görünümü: { type, color, role } — rol varsa rolden, yoksa C4 türünden */
+  function lookOf(x) {
+    const r = Seq.roles.roleById(x.role);
+    return r ? { type: r.type, color: r.color, role: r } : Object.assign({ role: null }, KIND_LOOK[kindOf(x)] || KIND_LOOK.system);
+  }
+  /** Görünümü katılımcıya yazar */
+  function applyLook(p, x) {
+    const lk = lookOf(x);
+    if (lk.role) p.role = lk.role.id; else delete p.role;
+    p.type = lk.type;
+    p.color = lk.color;
+  }
+  /** Yeni öğenin varsayılan türü: üst öğeye ve rolüne göre */
+  const defaultKindFor = (parentId, roleId) => C4().defaultKind(parentId && itemById(parentId) ? kindOf(itemById(parentId)) : null, roleType(roleId));
+  /** Türü olmayan öğelere bugünkü yerlerine göre tür yazar (eski kataloglar, içe alınanlar). Değiştiyse true */
+  function fillKinds() {
+    const ix = C4().index(S.catalog);
+    const missing = S.catalog.filter((x) => !C4().KINDS.includes(x.kind));
+    const kinds = missing.map((x) => C4().levelOf(ix, x, roleType(x.role)));
+    missing.forEach((x, i) => { x.kind = kinds[i]; });
+    return missing.length > 0;
+  }
+  /** Açılışta bir kez: eski kataloğa türleri yazar */
+  function migrate() { if (fillKinds()) saveCatalog(); }
+  /** Yerleşim uyarısı metni (uygunsa null) */
+  function placementWarning(x) {
+    const ok = C4().placementIssue(kindOf(x), parentOf(x) ? kindOf(itemById(parentOf(x))) : null);
+    if (!ok) return null;
+    return T('cat.place.' + kindOf(x));
+  }
+  const kindSelect = (value, withGroup) => {
+    const sel = h('select', { class: 'select cat-kind', title: T('cat.kindTitle') },
+      C4().KINDS.filter((k) => withGroup || k !== 'group').map((k) => h('option', { value: k }, T('c4.' + k))));
+    sel.value = value;
+    return sel;
+  };
   /** id, of'un atası mı (ya da kendisi mi)? Taşımada döngüyü engeller */
   const isAncestor = (id, of) => pathOf(of).some((x) => x.id === id);
   function uniqueItemId(name) {
@@ -47,11 +99,10 @@
   // ---------------------------------------------------------------------------
   // Katılımcıya uygulama ve değişikliklerin yayılması
   // ---------------------------------------------------------------------------
-  /** Öğeyi katılımcıya bağlar: rol, görünüm ve ad öğeden gelir. */
+  /** Öğeyi katılımcıya bağlar: görünüm (rolden ya da türden) ve ad öğeden gelir. */
   function applyItem(p, x) {
-    const r = Seq.roles.roleById(x.role);
     p.item = x.id;
-    if (r) { p.role = r.id; p.type = r.type; p.color = r.color; }
+    applyLook(p, x);
     p.label = displayName(x);
     p.implicit = false;
     if (p.autoId) {
@@ -72,8 +123,7 @@
         changed = true;
         if (!cur) { delete p.item; return; }
         const follows = p.label === oldLabel;
-        const r = Seq.roles.roleById(cur.role);
-        if (r) { p.role = r.id; p.type = r.type; p.color = r.color; }
+        applyLook(p, cur);
         if (follows) p.label = displayName(cur);
       });
       return changed;
@@ -106,7 +156,7 @@
   function matchesFor(p, model) {
     if (p.item || !S.catalog.length) return null;
     const taken = new Set(((model && model.participants) || []).map((q) => q.item).filter(Boolean));
-    const free = S.catalog.filter((x) => !taken.has(x.id));
+    const free = S.catalog.filter((x) => !taken.has(x.id) && !isGroup(x));
     const label = key(p.label || p.id);
     const exact = free.filter((x) => key(displayName(x)) === label);
     if (exact.length) return { items: exact, exact: true };
@@ -184,7 +234,7 @@
   // ---------------------------------------------------------------------------
   // Dışarı taşınan tanımlar ve içe alma
   // ---------------------------------------------------------------------------
-  const itemDef = (x) => Object.assign({ name: x.name, role: x.role }, x.parent ? { parent: x.parent } : {}, x.desc ? { desc: x.desc } : {});
+  const itemDef = (x) => Object.assign({ name: x.name, kind: kindOf(x), role: x.role }, x.parent ? { parent: x.parent } : {}, x.desc ? { desc: x.desc } : {});
   /**
    * Dışarı çıkan koda (paylaşım linki, .mmd/.txt) kullanılan rol ve katalog öğelerinin tanımlarını ekler.
    * Öğelerin üst öğeleri ve onların rolleri de eklenir (hiyerarşi başka çalışma alanında kurulabilsin).
@@ -230,18 +280,20 @@
       out.set(id, {
         id,
         name: typeof d.name === 'string' && d.name.trim() ? d.name.trim() : oneLine(base).trim() || Seq.roles.prettyId(id),
-        role: typeof d.role === 'string' && d.role ? d.role : (p && p.role) || (S.roles[0] && S.roles[0].id),
+        kind: C4().KINDS.includes(d.kind) ? d.kind : undefined,
+        role: typeof d.role === 'string' && d.role ? d.role : (p && p.role) || undefined,
         parent: typeof d.parent === 'string' && d.parent ? d.parent : null,
         desc: typeof d.desc === 'string' && d.desc.trim() ? d.desc.trim() : undefined,
       });
       if (d.parent) visit(d.parent, null);
     };
     model.participants.forEach((p) => visit(p.item, p));
-    return [...out.values()].map((x) => { if (!x.desc) delete x.desc; return x; });
+    return [...out.values()].map((x) => { ['desc', 'kind', 'role'].forEach((k) => { if (!x[k]) delete x[k]; }); return x; });
   }
   function adoptItems(defs) {
     if (!defs.length) return;
     S.catalog = S.catalog.concat(defs.filter((x) => !itemById(x.id)));
+    fillKinds();
     saveCatalog();
   }
 
@@ -278,17 +330,18 @@
         return;
       }
       rows.forEach(({ item, depth }) => {
-        const r = Seq.roles.roleById(item.role);
-        const pickable = !opts.only || opts.only.includes(item.id);
+        const lk = lookOf(item);
+        const pickable = !isGroup(item) && (!opts.only || opts.only.includes(item.id));
         const hit = (nq ? norm(displayName(item) + ' ' + (item.desc || '')).includes(nq) : true) && pickable;
         const row = h('button', {
-          class: 'dd-item cp-item' + (!hit ? ' dim' : ''), style: `padding-left:${8 + depth * 16}px;--c:${r ? r.color : 'var(--muted)'}`,
+          class: 'dd-item cp-item' + (!hit ? ' dim' : ''), style: `padding-left:${8 + depth * 16}px;--c:${lk.color}`,
           title: item.desc || null, draggable: opts.draggable ? 'true' : null, 'data-id': item.id,
           disabled: pickable ? null : true, // aday olmayan atalar yalnızca bağlam için gösterilir
           onclick: () => { close(); opts.onPick(item); },
-        }, ico('t-' + (r ? r.type : 'participant')), h('span', { class: 'cp-name' }, oneLine(displayName(item))), h('small', null, r ? r.name : '?'));
-        if (opts.draggable) {
-          row.addEventListener('dragstart', (e) => Seq.flow.startDrag(e, { kind: 'newPart', type: r ? r.type : 'participant', role: item.role, item: item.id }));
+        }, ico(isGroup(item) ? 'folder' : 't-' + lk.type), h('span', { class: 'cp-name' }, oneLine(displayName(item))),
+          h('small', null, [T('c4.' + kindOf(item)), lk.role && lk.role.name].filter(Boolean).join(' · ')));
+        if (opts.draggable && pickable) {
+          row.addEventListener('dragstart', (e) => Seq.flow.startDrag(e, { kind: 'newPart', type: lk.type, role: item.role, item: item.id }));
           row.addEventListener('dragend', (e) => { Seq.flow.endDrag(e); close(); });
         }
         list.append(h('li', null, row));
@@ -321,15 +374,17 @@
     sel.value = value || '';
     return sel;
   }
+  /** Rol seçimi; ilk seçenek "rol yok" (görünüm türden gelir) */
   const roleSelect = (value) => {
-    const sel = h('select', { class: 'select' }, S.roles.map((r) => h('option', { value: r.id }, r.name)));
-    sel.value = value || (S.roles[0] && S.roles[0].id) || '';
+    const sel = h('select', { class: 'select cat-role', title: T('cat.roleTitle') }, h('option', { value: '' }, T('cat.noRole')),
+      (S.roles || []).map((r) => h('option', { value: r.id }, r.name)));
+    sel.value = value && Seq.roles.roleById(value) ? value : '';
     return sel;
   };
   function openSaveDialog(p) {
-    if (!S.roles.length) return toast(T('cat.needRole'), 'err');
-    const r0 = Seq.roles.roleById(p.role) || S.roles.find((r) => r.type === p.type) || S.roles[0];
-    const role = roleSelect(r0.id);
+    // Rol önerisi: katılımcının rolü, yoksa aynı şekildeki ilk rol, o da yoksa rolsüz
+    const r0 = Seq.roles.roleById(p.role) || (S.roles || []).find((r) => r.type === p.type) || null;
+    const role = roleSelect(r0 ? r0.id : '');
     // Önerilen ad: seçili rolün ekleri çıkarılmış ad ("Ledger DB" + rol " DB" → "Ledger"); elle yazılınca dokunulmaz
     const suggest = () => oneLine(Seq.roles.stripAffixes(p.label, Seq.roles.roleById(role.value))).trim();
     const name = h('input', { class: 'input' });
@@ -337,16 +392,31 @@
     let nameTouched = false;
     name.addEventListener('input', () => { nameTouched = true; });
     const parent = parentSelect('');
+    parent.classList.add('cat-parent');
+    // Tür: üst öğeye ve role göre önerilir; elle seçilince dokunulmaz
+    const kind = kindSelect(defaultKindFor(null, role.value), false);
+    let kindTouched = false;
+    kind.addEventListener('change', () => { kindTouched = true; refreshWarn(); });
+    const warn = h('small', { class: 'cat-warn' });
+    const refreshWarn = () => {
+      const pk = parent.value && itemById(parent.value) ? kindOf(itemById(parent.value)) : null;
+      warn.textContent = C4().placementIssue(kind.value, pk) ? T('cat.place.' + kind.value) : '';
+    };
+    const suggestKind = () => { if (!kindTouched) kind.value = defaultKindFor(parent.value, role.value); refreshWarn(); };
+    parent.addEventListener('change', suggestKind);
+    role.addEventListener('change', suggestKind);
     const desc = h('input', { class: 'input', placeholder: T('cat.descPh') });
     const preview = h('small', { class: 'cs-preview' });
     const refresh = () => { preview.textContent = T('cat.willShow', { name: oneLine(Seq.roles.composeLabel(Seq.roles.roleById(role.value), name.value.trim() || '…')) }); };
     name.addEventListener('input', refresh);
     role.addEventListener('change', () => { if (!nameTouched) name.value = suggest(); refresh(); });
     refresh();
+    refreshWarn();
     const save = () => {
       const n = name.value.trim();
       if (!n) return name.focus();
-      const x = { id: uniqueItemId(n), name: n, role: role.value, parent: parent.value || null };
+      const x = { id: uniqueItemId(n), name: n, kind: kind.value, parent: parent.value || null };
+      if (role.value) x.role = role.value;
       if (desc.value.trim()) x.desc = desc.value.trim();
       S.catalog = S.catalog.concat([x]);
       saveCatalog();
@@ -357,8 +427,9 @@
       toast(T('cat.saved', { name: pathLabel(x.id) }));
     };
     const body = h('div', { class: 'cat-save' },
+      h('div', { class: 'field' }, h('label', null, T('cat.kind')), kind, warn),
       h('div', { class: 'field' }, h('label', null, T('cat.name')), name, preview),
-      h('div', { class: 'field' }, h('label', null, T('cat.role')), role),
+      h('div', { class: 'field' }, h('label', null, T('cat.role')), role, h('small', null, T('cat.roleHint'))),
       h('div', { class: 'field' }, h('label', null, T('cat.parent')), parent, h('small', null, T('cat.parentHint'))),
       h('div', { class: 'field' }, h('label', null, T('cat.desc')), desc),
       h('div', { class: 'export-actions' }, h('div', { class: 'left' }), h('div', { class: 'right' },
@@ -468,6 +539,7 @@
       const x = itemById(id);
       if (!x || (parent && isAncestor(id, parent)) || (x.parent || null) === (parent || null)) return;
       x.parent = parent || null;
+      // Taşınınca tür kendiliğinden düzelmez; uyumsuzsa satırda uyarı görünür
       saveCatalog();
       render();
     };
@@ -476,20 +548,28 @@
       const rows = flatTree();
       if (!rows.length) tree.append(h('p', { class: 'dd-empty' }, ico('help'), T('cat.emptyHint')));
       rows.forEach(({ item: x, depth }) => {
-        const r = Seq.roles.roleById(x.role);
-        const icon = h('span', { class: 'role-icon', style: `--c:${r ? r.color : 'var(--muted)'}` }, ico('t-' + (r ? r.type : 'participant')));
+        const icon = isGroup(x) ? h('span', { class: 'role-icon group' }, ico('folder')) : h('span', { class: 'role-icon' });
         const shown = h('small', { class: 'role-example' });
         const refresh = () => {
-          const rr = Seq.roles.roleById(x.role);
-          icon.style.setProperty('--c', rr ? rr.color : 'var(--muted)');
+          if (isGroup(x)) return;
+          const lk = lookOf(x);
+          icon.style.setProperty('--c', lk.color);
           icon.innerHTML = '';
-          icon.append(ico('t-' + (rr ? rr.type : 'participant')));
-          shown.textContent = rr && (rr.prefix || rr.suffix) ? T('cat.willShow', { name: oneLine(displayName(x)) }) : '';
+          icon.append(ico('t-' + lk.type));
+          shown.textContent = lk.role && (lk.role.prefix || lk.role.suffix) ? T('cat.willShow', { name: oneLine(displayName(x)) }) : '';
         };
         const name = h('input', { class: 'input', value: x.name, placeholder: T('cat.name') });
         name.addEventListener('input', () => { x.name = name.value.trim() || x.id; refresh(); changed(x); });
         const role = roleSelect(x.role);
-        role.addEventListener('change', () => { x.role = role.value; refresh(); changed(x); });
+        role.addEventListener('change', () => { if (role.value) x.role = role.value; else delete x.role; refresh(); changed(x); });
+        // Tür: değişince alt öğelerin yerleşim uyarıları da değişebilir → ağaç yeniden çizilir
+        const kind = kindSelect(kindOf(x), true);
+        kind.addEventListener('change', () => {
+          x.kind = kind.value;
+          changed(x); // rolsüz öğenin görünümü türden gelir → diyagramlara yayılır
+          render();
+        });
+        const warnText = placementWarning(x);
         const desc = h('input', { class: 'input', value: x.desc || '', placeholder: T('cat.descPh') });
         desc.addEventListener('input', () => { if (desc.value.trim()) x.desc = desc.value.trim(); else delete x.desc; saveCatalog(); });
         const used = usageOf(x.id).length;
@@ -509,8 +589,10 @@
         });
         const handle = h('span', { class: 'handle', title: T('cat.dragHint') }, ico('grip'));
         refresh();
-        const row = h('div', { class: 'cat-row', 'data-id': x.id, style: `--depth:${depth}`, draggable: 'true' },
-          handle, icon, h('div', { class: 'cat-name' }, name, shown), role, desc, usage, h('div', { class: 'cat-actions' }, addChild, del));
+        const row = h('div', { class: 'cat-row' + (warnText ? ' warn' : ''), 'data-id': x.id, style: `--depth:${depth}`, draggable: 'true' },
+          handle, icon, kind,
+          h('div', { class: 'cat-name' }, name, shown, warnText ? h('small', { class: 'cat-warn' }, ico('critical'), warnText) : null),
+          isGroup(x) ? h('span', { class: 'cat-norole' }, '—') : role, desc, usage, h('div', { class: 'cat-actions' }, addChild, del));
         // Sürükle-bırak: bir öğenin üstüne bırakınca onun altına taşınır
         row.addEventListener('dragstart', (e) => {
           if (e.target.closest('input, select')) { e.preventDefault(); return; }
@@ -533,9 +615,8 @@
     rootZone.addEventListener('drop', (e) => { e.preventDefault(); rootZone.classList.remove('over'); if (dragId) moveTo(dragId, null); });
 
     function addItem(parent) {
-      if (!S.roles.length) return toast(T('cat.needRole'), 'err');
       const base = T('cat.newName');
-      const x = { id: uniqueItemId(base), name: base, role: S.roles[0].id, parent: parent || null };
+      const x = { id: uniqueItemId(base), name: base, kind: defaultKindFor(parent, ''), parent: parent || null };
       S.catalog = S.catalog.concat([x]);
       saveCatalog();
       render();
@@ -553,7 +634,7 @@
         const arr = Array.isArray(data) ? data : data.catalog || [];
         let n = 0;
         arr.forEach((x) => {
-          if (!x || !/^[A-Za-z0-9_-]+$/.test(x.id || '') || typeof x.name !== 'string' || typeof x.role !== 'string') return;
+          if (!x || !/^[A-Za-z0-9_-]+$/.test(x.id || '') || typeof x.name !== 'string') return;
           const it = itemDef(x);
           it.id = x.id;
           const i = S.catalog.findIndex((y) => y.id === x.id);
@@ -562,6 +643,7 @@
           n++;
         });
         if (!Array.isArray(data) && Array.isArray(data.roles)) Seq.roles.adoptRoles(data.roles.filter((r) => r && r.id && !Seq.roles.roleById(r.id)));
+        if (fillKinds()) saveCatalog();
         render();
         toast(T('cat.imported', { n }));
       } catch { toast(T('cat.importFailed'), 'err'); }
@@ -602,7 +684,7 @@
   }
 
   Seq.catalog = {
-    init, adoptItems, applyItem, buildPanel, childrenOf, displayName, itemById, linkParticipant, matchesFor, openPicker, openSaveDialog,
+    init, adoptItems, applyItem, buildPanel, childrenOf, displayName, isGroup, itemById, kindOf, linkParticipant, lookOf, matchesFor, migrate, openPicker, openSaveDialog,
     pathLabel, pathOf, saveCatalog, stripKnownDefs, unknownItems, usageOf, withDefs,
   };
 })(window.Seq = window.Seq || {});

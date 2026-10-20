@@ -83,3 +83,53 @@ describe('C4 görünümü', () => {
     assert.equal(ids.size, 3);
   });
 });
+
+describe('C4 türleri', () => {
+  // Şirket (grup) › Ödeme alanı (grup) › Ödeme (sistem) › Ledger (konteyner) › Ledger API (bileşen)
+  const K = [
+    { id: 'co', name: 'Şirketim', role: 'x', kind: 'group' },
+    { id: 'area', name: 'Ödeme alanı', role: 'x', kind: 'group', parent: 'co' },
+    { id: 'pay', name: 'Ödeme', role: 'svc', kind: 'system', parent: 'area' },
+    { id: 'ledger', name: 'Ledger', role: 'svc', kind: 'container', parent: 'pay' },
+    { id: 'ledger-api', name: 'Ledger API', role: 'svc', kind: 'component', parent: 'ledger' },
+    { id: 'gw', name: 'Gateway', role: 'svc', kind: 'container', parent: 'pay' },
+    { id: 'orders', name: 'Sipariş', role: 'svc', kind: 'system', parent: 'co' },
+    { id: 'customer', name: 'Müşteri', role: 'user', kind: 'person', parent: 'co' },
+    { id: 'stray', name: 'Yalnız DB', role: 'db', kind: 'container' }, // sistemi yok (yanlış yerleşim)
+  ];
+  const pp = (id, item) => `%% @item ${item}\nparticipant ${id}\n`;
+  const kdocs = [{ id: 'd', model: M.parse('sequenceDiagram\n' + pp('C', 'customer') + pp('O', 'orders') + pp('A', 'ledger-api') + pp('G', 'gw') + pp('S', 'stray')
+    + 'C->>O: sipariş\nO->>G: öde\nG->>A: kaydet\nA->>S: yaz\n') }];
+  const krels = C4.relations(K, kdocs);
+
+  test('C1: gruplar görünmez; tek kök grubun altındaki kişiler ve sistemler gösterilir', () => {
+    const v = C4.view(K, krels, null, roleType);
+    assert.deepEqual(nodes(v), ['customer:person', 'orders:system', 'pay:system', 'stray:container']);
+    assert.deepEqual(edges(v), ['customer>orders: sipariş', 'orders>pay: öde', 'pay>stray: yaz']);
+    assert.equal(v.nodes.find((n) => n.id === 'pay').hasChildren, true);
+    assert.equal(v.nodes.find((n) => n.id === 'customer').hasChildren, false);
+  });
+
+  test('C2/C3 türe göre; konum çubuğunda gruplar atlanır; grup odak olamaz', () => {
+    const c2 = C4.view(K, krels, 'pay', roleType);
+    assert.equal(c2.focusLevel, 'system');
+    assert.deepEqual(c2.path.map((x) => x.id), ['pay']);
+    assert.deepEqual(nodes(c2), ['gw:container', 'ledger:container', 'orders(dış):system', 'stray(dış):container']);
+    const c3 = C4.view(K, krels, 'ledger', roleType);
+    assert.deepEqual(nodes(c3), ['gw(dış):container', 'ledger-api:component', 'stray(dış):container']);
+    assert.equal(C4.view(K, krels, 'co', roleType).focus, null);
+  });
+
+  test('düz katalog: türü olmayan öğeler kişi/sistem sayılır; varsayılan tür ve yerleşim kuralları', () => {
+    const flat = [{ id: 'a', name: 'A', role: 'svc' }, { id: 'u', name: 'U', role: 'user' }];
+    assert.deepEqual(nodes(C4.view(flat, [], null, roleType)), ['a:system', 'u:person']);
+    assert.equal(C4.defaultKind(null, 'actor'), 'person');
+    assert.equal(C4.defaultKind('group', 'participant'), 'system');
+    assert.equal(C4.defaultKind('system', 'database'), 'container');
+    assert.equal(C4.defaultKind('container', 'participant'), 'component');
+    assert.equal(C4.placementIssue('component', 'container'), null);
+    assert.deepEqual(C4.placementIssue('component', 'system'), ['container']);
+    assert.deepEqual(C4.placementIssue('system', 'container'), [null, 'group']);
+    assert.equal(C4.placementIssue('person', null), null);
+  });
+});

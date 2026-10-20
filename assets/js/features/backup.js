@@ -45,7 +45,7 @@
     const folders = (Array.isArray(b.folders) ? b.folders : []).filter((f) => f && typeof f.id === 'string').map((f) => Object.assign({}, f, { name: String(f.name || T('folder.new')) }));
     const okType = (t) => M.PARTICIPANT_TYPES.some((x) => x.v === t);
     const roles = (Array.isArray(b.roles) ? b.roles : []).filter((r) => r && /^[A-Za-z0-9_-]+$/.test(r.id || '') && okType(r.type) && /^#[0-9a-f]{6}$/i.test(r.color || ''));
-    const catalog = (Array.isArray(b.catalog) ? b.catalog : []).filter((x) => x && /^[A-Za-z0-9_-]+$/.test(x.id || '') && typeof x.name === 'string' && typeof x.role === 'string');
+    const catalog = (Array.isArray(b.catalog) ? b.catalog : []).filter((x) => x && /^[A-Za-z0-9_-]+$/.test(x.id || '') && typeof x.name === 'string');
     return { docs, folders, roles, catalog, exportedAt: b.exportedAt, current: b.current };
   }
 

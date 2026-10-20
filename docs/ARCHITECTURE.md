@@ -168,8 +168,8 @@ The model stores studio-only data as Mermaid comments, so exported code stays va
 Two separate ideas, chained: **participant → catalog item → role**.
 
 - A **role** (`features/roles.js`) says how a participant looks: shape, color, name prefix/suffix.
-- A **catalog item** (`features/catalog.js`) says who it is: `{ id, name, role, parent?, desc? }`. The role
-  is required, so the look always comes from one place. `parent` builds a C4-style hierarchy, and a parent
+- A **catalog item** (`features/catalog.js`) says who it is: `{ id, name, kind, role?, parent?, desc? }`. The
+  role is optional. `lookOf(item)` returns the look: from the role if set, otherwise from the C4 `kind`. `parent` builds a C4-style hierarchy, and a parent
   can be a participant too.
 
 Matching (`Seq.catalog.matchesFor`) finds unlinked participants that are probably a catalog item: the
@@ -190,13 +190,17 @@ The top bar switches between two screens in the same page: **Flows** (sequence d
 
 The architecture screen draws C4 views from two inputs, so it needs no extra maintenance:
 
-- **Elements** come from the catalog hierarchy. A root item is a *system* (or a *person* if its role is an
-  actor), an inner item is a *container*, and a leaf is a *component*.
+- **Elements** come from the catalog. Each item has an explicit C4 type (`kind`): `person`, `system`,
+  `container`, `component`, or `group`. Groups only organize the catalog: they are skipped in every view
+  and in the breadcrumb, so a catalog with a single root group still gets a proper C1. Expected parents
+  (`SeqC4.PARENTS`) are not enforced; a misplaced item is flagged in the catalog and still drawn at the
+  nearest sensible level. Items saved before types existed get one once, from their position.
 - **Relationships** are derived from the sequence diagrams. Every call between two catalog-linked
   participants is a "uses" relationship (replies and unlinked participants are ignored).
 
-`lib/c4.js` aggregates relationships to the level being viewed. C1 shows the root items. Zooming into an
-item shows its children inside a boundary, and the neighbors they talk to outside it, at the level just below
+`lib/c4.js` aggregates relationships to the level being viewed. Every item is drawn through its
+representative, which is the first non-group item after the common ancestor with the focus. C1 shows persons
+and systems. Zooming into an item shows its children inside a boundary, and the neighbors they talk to outside it, at the level just below
 the common ancestor (a sibling container in C3, another system in C2). The result is rendered as a Mermaid
 flowchart. Sequence diagrams themselves never get extra boxes.
 

@@ -121,3 +121,21 @@ test('kenara tıklayınca ilişkinin geçtiği akışlar mesajlarıyla listeleni
   await page.mouse.click(pt.x, pt.y);
   await expect(page.locator('.arch-edge-menu .dd-item')).toHaveText([/Sipariş akışı[\s\S]*sipariş ver/]);
 });
+
+test('tek kök grup kullanan katalogda C1 grubun içindeki sistemleri gösterir; konum çubuğunda grup yok', async ({ context }) => {
+  const cat = [
+    { id: 'co', name: 'Şirketim', kind: 'group' },
+    { id: 'orders', name: 'Sipariş sistemi', role: 'external', kind: 'system', parent: 'co' },
+    { id: 'order-api', name: 'Order', role: 'service', kind: 'container', parent: 'orders' },
+    { id: 'pay', name: 'Ödeme sistemi', role: 'external', kind: 'system', parent: 'co' },
+    { id: 'gw', name: 'Ödeme', role: 'gateway', kind: 'container', parent: 'pay' },
+  ];
+  const code = seq(part('O', 'order-api', 'service', 'Order Service') + part('G', 'gw', 'gateway', 'Ödeme Gateway') + 'O->>G: öde\n');
+  await seed(context, { docs: [doc('a', 'Akış', code)], current: 'a', catalog: cat, settings: { screen: 'arch' } });
+  const page = await openApp(context);
+  await expect.poll(() => nodes(page)).toEqual(['orders', 'pay']);
+  await page.locator('.arch-node[data-item="pay"]').click();
+  await page.locator('.dropdown .dd-item', { hasText: 'İçine gir' }).click();
+  await expect(page.locator('#archCrumbs .crumb')).toHaveText(['Tüm sistemler', 'Ödeme sistemi']);
+  await expect.poll(() => nodes(page)).toEqual(['gw', 'orders']);
+});

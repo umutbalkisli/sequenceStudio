@@ -62,7 +62,8 @@ test('yedek alınır; birleştir ve değiştir doğru çalışır, geçersiz dos
   const backup = JSON.parse(dl.text());
   expect(dl.name).toMatch(/^sequence-studio-yedek-\d{4}-\d{2}-\d{2}\.json$/);
   expect([backup.kind, backup.docs.length, backup.folders.length, backup.roles.length]).toEqual(['sequence-studio-workspace', 3, 1, 1]);
-  expect(backup.catalog).toEqual(catalog);
+  // Eski katalog açılışta türlerle geçirilir
+  expect(backup.catalog).toEqual([{ ...catalog[0], kind: 'system' }, { ...catalog[1], kind: 'component' }]);
   await expect(page.locator('#backupBox .bk-status')).toContainText('Son yedek');
 
   // Birleştir: yeni diyagram eklenir; farklı içerikli aynı diyagram "(yedek)" kopyası olur

@@ -309,7 +309,7 @@
     // Rol seçimi (katalog öğesine bağlıysa rol öğeden gelir, burada değiştirilmez)
     const roleChips = item ? h('div', { class: 'role-pick' },
       role ? h('span', { class: 'rp-chip active', style: `--c:${role.color}` }, ico('t-' + role.type), role.name) : null,
-      h('small', { class: 'cat-desc-line' }, T('cat.roleFromItem'))) : h('div', { class: 'role-pick' },
+      h('small', { class: 'cat-desc-line' }, T(role ? 'cat.roleFromItem' : 'cat.lookFromKind'))) : h('div', { class: 'role-pick' },
       h('button', { class: 'rp-chip' + (!p.role ? ' active' : ''), onclick: () => {
         if (!p.role) return;
         delete p.role; // görünüm ve ad olduğu gibi kalır

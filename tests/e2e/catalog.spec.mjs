@@ -27,7 +27,7 @@ test('katılımcı kataloğa kaydedilir: ad rol eklerinden arındırılır, üst
   const dlg = page.locator('.cat-save');
   await expect(dlg.locator('input').first()).toHaveValue('Ledger'); // "Veritabanı" rolünün " DB" eki çıkarıldı
   await expect(dlg.locator('.cs-preview')).toHaveText('Diyagramda: Ledger DB');
-  await dlg.locator('select').nth(1).selectOption('ledger');
+  await dlg.locator('.cat-parent').selectOption('ledger');
   await dlg.locator('.btn.primary').click();
   await expect.poll(() => getCode(page)).toMatch(/%% @item ledger-2\n\s*%% @role database\n\s*%% @color #[0-9a-f]{6}\n\s*participant P@\{ "type": "database" \} as Ledger DB/);
   await page.locator('.pcard', { hasText: 'Ledger DB' }).click();
@@ -69,7 +69,7 @@ test('öğe değişiklikleri yayılır: adı izleyenler güncellenir, özel ad k
   const row = page.locator('.cat-row[data-id="ledger"]');
   await row.locator('.cat-name .input').fill('Defter');
   await expect.poll(() => getCode(page)).toContain('participant L as Defter Service');
-  await row.locator('select').selectOption('database');
+  await row.locator('.cat-role').selectOption('database');
   await expect.poll(() => getCode(page)).toMatch(/%% @role database\n\s*%% @color #f97a3c\n\s*participant L@\{ "type": "database" \} as Defter DB/);
   await expect.poll(() => docCode(page, 'd2')).toMatch(/participant L@\{ "type": "database" \} as Muhasebe/);
 });
@@ -116,8 +116,9 @@ test('dışarı çıkan kod öğe, üst öğe ve rol tanımlarını taşır; bo�
   const page = await openApp(context);
   await openExport(page, 'Mermaid');
   const mmd = await download(page, () => page.locator('.export-actions .btn.primary').click());
-  expect(mmd.text()).toMatch(/%% @itemdef ledger-db \{"name":"Ledger","role":"database","parent":"ledger"\}/);
-  expect(mmd.text()).toMatch(/%% @itemdef payments \{"name":"Ödeme sistemi","role":"external"\}/);
+  // Türü olmayan eski öğelere açılışta yerlerine göre tür yazılır (kök → sistem, yaprak → bileşen)
+  expect(mmd.text()).toMatch(/%% @itemdef ledger-db \{"name":"Ledger","kind":"component","role":"database","parent":"ledger"\}/);
+  expect(mmd.text()).toMatch(/%% @itemdef payments \{"name":"Ödeme sistemi","kind":"system","role":"external"\}/);
   expect(await getCode(page)).not.toContain('@itemdef'); // kayıtlı kod temiz kalır
 
   const fresh = await browser.newContext();
@@ -222,4 +223,89 @@ test.describe('eşleşenleri bağla', () => {
     await expect(page.locator('#archInfo')).not.toContainText('sayılmadı');
     await expect(page.locator('#archCanvas .edgeLabel', { hasText: 'oku' })).toHaveCount(1);
   });
+});
+
+test.describe('C4 türleri', () => {
+  const KCAT = [
+    { id: 'co', name: 'Şirketim', kind: 'group' },
+    { id: 'pay', name: 'Ödeme', role: 'external', kind: 'system', parent: 'co' },
+    { id: 'ledger', name: 'Ledger', role: 'service', kind: 'container', parent: 'pay' },
+    { id: 'api', name: 'Ledger API', role: 'service', kind: 'component', parent: 'pay' }, // yanlış: sistemde bileşen
+    { id: 'orders', name: 'Sipariş', role: 'external', kind: 'system', parent: 'co' },
+  ];
+
+  test('ağaçta tür seçilir; grup çizilmez ve rolsüzdür; yanlış yerleşim uyarılır ve düzeltilince kalkar', async ({ context }) => {
+    await seed(context, { docs: [doc('d1', 'A', seq('participant X\nX->>X: y\n'))], current: 'd1', catalog: KCAT });
+    const page = await openApp(context);
+    await openLibrary(page, 'catalog');
+    await expect(page.locator('.cat-row[data-id="co"] .cat-norole')).toBeVisible();
+    await expect(page.locator('.cat-row[data-id="co"] .cat-kind')).toHaveValue('group');
+    await expect(page.locator('.cat-row.warn')).toHaveCount(1);
+    await expect(page.locator('.cat-row[data-id="api"] .cat-warn')).toContainText('konteynerin içinde');
+    // Bileşeni Ledger konteynerinin altına taşı → uyarı kalkar
+    await page.locator('.cat-row[data-id="api"] .handle').dragTo(page.locator('.cat-row[data-id="ledger"]'));
+    await expect(page.locator('.cat-row.warn')).toHaveCount(0);
+    // Ledger'ı sisteme çevir → sistemin içinde sistem olamaz: uyarı
+    await page.locator('.cat-row[data-id="ledger"] .cat-kind').selectOption('system');
+    await expect(page.locator('.cat-row[data-id="ledger"] .cat-warn')).toContainText('en üstte');
+    await expect.poll(async () => (await idbDump(page)).kv.catalog.find((x) => x.id === 'ledger').kind).toBe('system');
+  });
+
+  test('seçicide gruplar başlık olarak görünür ama seçilemez', async ({ context }) => {
+    await seed(context, { docs: [doc('d1', 'A', seq('participant X\nX->>X: y\n'))], current: 'd1', catalog: KCAT });
+    const page = await openApp(context);
+    await page.locator('#palRoles .cat-open').click();
+    await expect(page.locator('.catalog-picker .cp-item[data-id="co"]')).toBeDisabled();
+    await expect(page.locator('.catalog-picker .cp-item[data-id="ledger"]')).toContainText('Konteyner');
+  });
+
+  test('kaydederken tür üst öğeye göre önerilir; uyumsuz seçim uyarılır', async ({ context }) => {
+    await seed(context, { docs: [doc('d1', 'A', seq('participant Q as Kuyruk\nQ->>Q: x\n'))], current: 'd1', catalog: KCAT });
+    const page = await openApp(context);
+    await page.locator('.pcard', { hasText: 'Kuyruk' }).click();
+    await page.locator('#popover .rp-edit', { hasText: 'Kataloğa kaydet' }).click();
+    const dlg = page.locator('.cat-save');
+    const kind = dlg.locator('.cat-kind');
+    await expect(kind).toHaveValue('system');
+    await dlg.locator('.cat-parent').selectOption('pay');
+    await expect(kind).toHaveValue('container');
+    await dlg.locator('.cat-parent').selectOption('ledger');
+    await expect(kind).toHaveValue('component');
+    await kind.selectOption('system');
+    await expect(dlg.locator('.cat-warn')).toContainText('en üstte');
+    await kind.selectOption('component');
+    await expect(dlg.locator('.cat-warn')).toHaveText('');
+    await dlg.locator('.btn.primary').click();
+    await expect.poll(async () => (await idbDump(page)).kv.catalog.find((x) => x.name === 'Kuyruk')).toMatchObject({ kind: 'component', parent: 'ledger' });
+  });
+
+  test('türü olmayan eski katalog açılışta yerine göre türlenir', async ({ context }) => {
+    await seed(context, { docs: [doc('d1', 'A', seq('participant X\nX->>X: y\n'))], current: 'd1', catalog: CATALOG });
+    const page = await openApp(context);
+    await expect.poll(async () => (await idbDump(page)).kv.catalog.map((x) => x.id + ':' + x.kind)).toEqual(['payments:system', 'ledger:container', 'ledger-db:component']);
+  });
+});
+
+test('rol isteğe bağlı: rolsüz öğenin görünümü türden gelir; tür değişince diyagramlara yansır; alan sırası tür → ad → rol', async ({ context }) => {
+  await seed(context, { docs: [doc('d1', 'A', seq('participant X\nX->>X: y\n'))], current: 'd1', catalog: [{ id: 'billing', name: 'Billing', kind: 'system' }] });
+  const page = await openApp(context);
+  await page.locator('#palRoles .cat-open').click();
+  await page.locator('.catalog-picker .cp-item', { hasText: 'Billing' }).click();
+  await expect.poll(() => getCode(page)).toMatch(/%% @item billing\n\s*%% @color #3a8dde\n\s*participant Billing\n/);
+  expect(await getCode(page)).not.toContain('@role');
+
+  await openLibrary(page, 'catalog');
+  const row = page.locator('.cat-row[data-id="billing"]');
+  // Satırda sıra: tür, ad, rol
+  expect(await row.evaluate((r) => [...r.children].map((c) => c.className.split(' ')[0] || c.tagName))).toEqual(
+    ['handle', 'role-icon', 'select', 'cat-name', 'select', 'input', 'cat-usage', 'cat-actions']);
+  await expect(row.locator('.cat-role')).toHaveValue('');
+  await row.locator('.cat-kind').selectOption('person');
+  await expect.poll(() => getCode(page)).toMatch(/%% @item billing\n\s*%% @color #6c7cff\n\s*actor Billing\n/);
+  // Rol seçilince görünüm rolden gelir
+  await row.locator('.cat-role').selectOption('database');
+  await expect.poll(() => getCode(page)).toMatch(/%% @item billing\n\s*%% @role database\n\s*%% @color #f97a3c\n\s*participant Billing@\{ "type": "database" \} as Billing DB/);
+  // Rol kaldırılınca türün görünümüne döner
+  await row.locator('.cat-role').selectOption('');
+  await expect.poll(() => getCode(page)).toMatch(/%% @item billing\n\s*%% @color #6c7cff\n\s*actor Billing as Billing\n|%% @item billing\n\s*%% @color #6c7cff\n\s*actor Billing\n/);
 });

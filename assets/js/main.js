@@ -41,6 +41,7 @@
     S.folders = data.folders || [];
     S.roles = data.roles;
     S.catalog = data.catalog || [];
+    Seq.catalog.migrate();
     Seq.docs.applyRescue();
     if (!S.settings.firstUse) { S.settings.firstUse = Date.now(); saveSettings(); }
     if (data.migrated && data.migrated.count) toast(T('storage.migrated', { n: data.migrated.count }));

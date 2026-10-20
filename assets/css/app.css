@@ -1135,7 +1135,7 @@ kbd { box-shadow: 0 1px 0 var(--border-strong); }
 .lib-tabs button .ic { width: 15px; height: 15px; }
 .cat-tree { display: flex; flex-direction: column; gap: 6px; }
 .cat-row {
-  display: grid; grid-template-columns: 18px 34px minmax(150px, 1fr) 150px minmax(120px, 1fr) 84px 62px; gap: 8px; align-items: start;
+  display: grid; grid-template-columns: 18px 34px 118px minmax(150px, 1fr) 150px minmax(110px, 1fr) 84px 62px; gap: 8px; align-items: start;
   padding: 3px 4px 3px calc(4px + var(--depth, 0) * 22px); border-radius: 10px; border: 1px solid transparent; position: relative;
 }
 .cat-row > .input, .cat-row > .select { height: 34px; }
@@ -1240,3 +1240,11 @@ body.screen-arch .tb-right .btn-group, body.screen-arch #btnTemplates, body.scre
 .pres-caption { padding: 14px 20px 18px; text-align: center; font-size: 18px; font-weight: 600; color: var(--text); background: var(--panel); border-top: 1px solid var(--border); min-height: 58px; }
 .pres-caption.muted { color: var(--muted); font-weight: 500; font-size: 15px; }
 @media (max-width: 760px) { .pres-speed, .pres-controls select { display: none; } .pres-caption { font-size: 15px; } }
+
+/* Katalog: C4 türü ve yerleşim uyarısı */
+.cat-row > .cat-kind { height: 34px; }
+.cat-norole { line-height: 34px; color: var(--muted); padding-left: 10px; }
+.role-icon.group { --c: var(--muted); color: var(--muted); background: var(--panel-3); border-style: dashed; }
+.cat-warn { display: flex; align-items: center; gap: 4px; color: var(--warn); font-size: 11px; line-height: 1.35; }
+.cat-warn .ic { width: 12px; height: 12px; flex: none; }
+.cat-row.warn .cat-kind { border-color: color-mix(in srgb, var(--warn) 60%, var(--border)); }
