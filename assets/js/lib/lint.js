@@ -6,7 +6,7 @@
  *
  * Kural: { id, level: 'error' | 'warning' | 'info', check(model, ctx, report) }
  *   report(uid, params) bir bulgu ekler.
- *   ctx: { docExists(id) → bool, selfId }
+ *   ctx: { docExists(id) → bool, selfId, catalogMatch(p) → [öğe id] (kataloğa bağlanabilecek öğeler) }
  * Yeni kural eklemek için register yeterlidir.
  */
 (function (root) {
@@ -129,6 +129,19 @@
         it.branches.forEach((br, i) => {
           if (!br.items.some((x) => !x.auto)) report(br.uid, { type: it.type, index: i, label: it.type === 'rect' && i === 0 ? '' : br.label || '' });
         });
+      });
+    },
+  });
+
+  // Kataloğa bağlı olmayan ama adı bir katalog öğesiyle eşleşen katılımcı (mimari görünüme yansımaz)
+  register({
+    id: 'catalogMatch', level: 'info',
+    check(model, ctx, report) {
+      if (!ctx.catalogMatch) return;
+      model.participants.forEach((p) => {
+        if (p.item) return;
+        const items = ctx.catalogMatch(p) || [];
+        if (items.length) report(p.uid, { p: p.id, items });
       });
     },
   });

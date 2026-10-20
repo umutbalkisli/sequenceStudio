@@ -172,6 +172,11 @@ Two separate ideas, chained: **participant → catalog item → role**.
   is required, so the look always comes from one place. `parent` builds a C4-style hierarchy, and a parent
   can be a participant too.
 
+Matching (`Seq.catalog.matchesFor`) finds unlinked participants that are probably a catalog item: the
+same display name, or the same name once role affixes are removed. Only single, unambiguous matches are
+preselected. It feeds the `catalogMatch` lint rule (through `Seq.lint.addRuleUi`, which lets a module add a
+description, a one-click fix and context functions to a rule) and the bulk **Link matches** view.
+
 A participant linked to an item takes its role and its name (`composeLabel(role, item.name)`). The name
 keeps following the item as long as it wasn't changed in that diagram. `features/library.js` shows both in
 one window with two tabs, and `features/defs-notice.js` offers to import unknown roles and items that come

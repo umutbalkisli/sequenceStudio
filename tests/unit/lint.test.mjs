@@ -60,6 +60,16 @@ describe('diyagram denetimi', () => {
     assert.deepEqual(lint(code, {}, ['unusedParticipant', 'duplicateLabel']), [['unusedParticipant', 'C'], ['duplicateLabel', 'B']]);
   });
 
+  test('katalogla eşleşen ama bağlı olmayan katılımcı (eşleştirme işlevi bağlamdan gelir)', () => {
+    const code = seq('%% @item db\nparticipant D as Ledger DB\nparticipant L as Ledger\nparticipant X\nL->>D: x\nX->>L: y\n');
+    const ctx = { catalogMatch: (p) => (p.label === 'Ledger' ? ['svc', 'db2'] : ['nope']) };
+    const m = M.parse(code);
+    const out = L.run(m, ctx).filter((x) => x.rule === 'catalogMatch');
+    // Bağlı olan (D) sorulmaz; eşleşmesi olanlar raporlanır
+    assert.deepEqual(out.map((x) => [x.params.p, x.params.items]), [['L', ['svc', 'db2']], ['X', ['nope']]]);
+    assert.deepEqual(L.run(m, {}).filter((x) => x.rule === 'catalogMatch'), []);
+  });
+
   test('boş blok kolu ve metinsiz mesaj', () => {
     const code = seq('A->>B: x\nalt dolu\nB-->>A: y\nelse boş\nend\nloop\nend\nA->>B:\n');
     assert.deepEqual(lint(code, {}, ['emptyBranch', 'emptyMessage']), [['emptyBranch', 'alt:boş'], ['emptyBranch', 'loop:'], ['emptyMessage', '']]);

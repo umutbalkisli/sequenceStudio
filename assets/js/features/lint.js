@@ -3,6 +3,9 @@
  * Kurallar lib/lint.js'tedir (SeqLint). Bu modül diyagram her değiştiğinde denetimi çalıştırır; önizleme
  * başlığındaki rozeti, sorun listesini ve oluşturucudaki adım/katılımcı işaretlerini günceller.
  * Listeden bir soruna tıklayınca ilgili adım (kod görünümündeyse satır) gösterilir.
+ *
+ * Başka modüller bir kural için metin ve tek tıklık düzeltme ekleyebilir (addRuleUi): ör. katalog modülü
+ * "katalog öğesiyle eşleşiyor" bulgusuna "Bağla" düğmesi koyar.
  */
 (function (Seq) {
   'use strict';
@@ -13,13 +16,17 @@
   const badge = () => $('#lintBadge');
   const LEVEL_ICON = { error: 'critical', warning: 'critical', info: 'help' };
 
+  // Kurallara arayüz eklentileri: { describe(issue) → metin, fix(issue) → { label, run(anchor) } | null, ctx: { ad: fn } }
+  const ruleUi = new Map();
+  /** Bir kural için metin, düzeltme düğmesi ya da denetime verilecek bağlam işlevleri ekler */
+  function addRuleUi(rule, ui) { ruleUi.set(rule, ui); }
+
   // --- Denetim ---
   function run() {
     if (!S.model) return;
-    issues = window.SeqLint.run(S.model, {
-      docExists: (id) => S.docs.some((d) => d.id === id),
-      selfId: S.doc && S.doc.id,
-    });
+    const ctx = { docExists: (id) => S.docs.some((d) => d.id === id), selfId: S.doc && S.doc.id };
+    ruleUi.forEach((ui) => Object.assign(ctx, ui.ctx));
+    issues = window.SeqLint.run(S.model, ctx);
     updateBadge();
     decorate();
     if (panel) panel.refresh();
@@ -30,6 +37,8 @@
   /** Bulgunun okunur metni (i18n: lint.<kural>) */
   function describe(x) {
     const p = x.params;
+    const ui = ruleUi.get(x.rule);
+    if (ui && ui.describe) return ui.describe(x);
     if (x.rule === 'emptyBranch') {
       const block = T('step.' + (p.type === 'par_over' ? 'par' : p.type));
       return p.label ? T('lint.emptyBranch', { block, label: oneLine(p.label) }) : T('lint.emptyBranchNoLabel', { block });
@@ -77,8 +86,15 @@
       h('span', { class: 'dd-sum' }, counts.map(([l, n]) => T('lint.count.' + l, { n })).join(' · ')),
       h('button', { class: 'icon-btn sm', title: T('common.close'), onclick: () => panel.close() }, ico('x'))));
     if (!issues.length) { box.append(h('p', { class: 'dd-empty ok' }, ico('check'), T('lint.none'))); return; }
-    box.append(h('ul', null, issues.map((x) => h('li', null,
-      h('button', { class: 'dd-item lv-' + x.level, onclick: () => goTo(x) }, ico(LEVEL_ICON[x.level]), h('span', null, describe(x)))))));
+    box.append(h('ul', null, issues.map((x) => {
+      const ui = ruleUi.get(x.rule);
+      const fix = ui && ui.fix ? ui.fix(x) : null;
+      const fixBtn = fix ? h('button', { class: 'btn sm dd-fix' }, fix.label) : null;
+      if (fixBtn) fixBtn.addEventListener('click', (e) => { e.stopPropagation(); fix.run(fixBtn); });
+      return h('li', { class: 'dd-row' },
+        h('button', { class: 'dd-item lv-' + x.level, onclick: () => goTo(x) }, ico(LEVEL_ICON[x.level]), h('span', null, describe(x))),
+        fixBtn);
+    })));
   }
 
   /** Bulgunun kaynağını gösterir: kod görünümünde satırı seçer, oluşturucuda adımı/katılımcıyı */
@@ -111,5 +127,5 @@
     events.on('doc:deleted', run);
   }
 
-  Seq.lint = { init, issues: () => issues.slice(), run };
+  Seq.lint = { init, addRuleUi, issues: () => issues.slice(), run };
 })(window.Seq = window.Seq || {});

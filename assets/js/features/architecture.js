@@ -85,10 +85,16 @@
   }
   function renderInfo(v, rels) {
     const n = new Set(rels.flatMap((r) => r.docs)).size;
-    const parts = [T('arch.info', { e: v.edges.length, n })];
-    if (rels.unlinked) parts.push(T('arch.unlinked', { n: rels.unlinked }));
-    $('#archInfo').textContent = parts.join(' · ');
-    $('#archInfo').title = T('arch.infoTitle');
+    const box = $('#archInfo');
+    box.innerHTML = '';
+    box.title = T('arch.infoTitle');
+    box.append(T('arch.info', { e: v.edges.length, n }));
+    if (rels.unlinked) {
+      box.append(' · ' + T('arch.unlinked', { n: rels.unlinked }));
+      // Adı katalogla eşleşen ama bağlı olmayan katılımcılar varsa toplu bağlama önerilir
+      const m = S.docs.reduce((k, d) => { const md = M.parse(docCode(d)); return k + md.participants.filter((p) => Seq.catalog.matchesFor(p, md)).length; }, 0);
+      if (m) box.append(' ', h('button', { class: 'link-btn', onclick: () => Seq.library.open('catalog', { match: true }) }, T('arch.linkMatches', { n: m })));
+    }
   }
 
   /** Düğümlere tıklama: içine gir / kullanıldığı diyagramlar */

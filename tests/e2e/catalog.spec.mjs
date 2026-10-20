@@ -148,3 +148,78 @@ test('aynı öğeye bağlı katılımcılar referans içine çizilince birleşir
   expect(text).toContain('L->>DB: insert'); // "Svc" ana diyagramdaki "L" ile eşleşti
   expect(text).not.toMatch(/participant Svc/);
 });
+
+test.describe('eşleşenleri bağla', () => {
+  const MORE = CATALOG.concat([{ id: 'orders', name: 'Sipariş sistemi', role: 'external' }, { id: 'order-api', name: 'Order', role: 'service', parent: 'orders' }]);
+
+  test('denetim eşleşmeyi bildirir: tek adayda "Bağla", birden çok adayda "Seç…"', async ({ context }) => {
+    await seed(context, { docs: [doc('d1', 'A', seq('participant D@{ "type": "database" } as Ledger DB\nparticipant L as Ledger\nL->>D: x\n'))], current: 'd1', catalog: CATALOG });
+    const page = await openApp(context);
+    await page.locator('#lintBadge').click();
+    const rows = page.locator('.lint-panel .dd-row');
+    await expect(rows.filter({ hasText: 'Ledger DB' })).toContainText('Ödeme sistemi › Ledger Service › Ledger DB');
+    await rows.filter({ hasText: 'Ledger DB' }).locator('.dd-fix', { hasText: 'Bağla' }).click();
+    await expect.poll(() => getCode(page)).toMatch(/%% @item ledger-db\n\s*%% @role database\n[\s\S]*as Ledger DB/);
+
+    // "Ledger": hem servis hem veritabanı öğesinin adı; DB artık bağlı olduğundan tek aday kalır.
+    // Liste açık kalır ve denetim yeniden çalışınca güncellenir
+    await expect(page.locator('.lint-panel')).toBeVisible();
+    const l = page.locator('.lint-panel .dd-row', { hasText: 'eşleşiyor' });
+    await expect(l).toHaveCount(1);
+    await expect(l).toContainText('Ödeme sistemi › Ledger Service');
+    await l.locator('.dd-fix').click();
+    await expect.poll(() => getCode(page)).toMatch(/%% @item ledger\n\s*%% @role service\n[\s\S]*participant L as Ledger Service/);
+  });
+
+  test('belirsiz eşleşmede seçici yalnızca adayları seçtirir', async ({ context }) => {
+    await seed(context, { docs: [doc('d1', 'A', seq('participant L as Ledger\nL->>L: x\n'))], current: 'd1', catalog: CATALOG });
+    const page = await openApp(context);
+    await page.locator('#lintBadge').click();
+    await expect(page.locator('.lint-panel .dd-row')).toContainText('2 öğeyle eşleşiyor');
+    await page.locator('.lint-panel .dd-fix', { hasText: 'Seç…' }).click();
+    const picker = page.locator('.catalog-picker');
+    await expect(picker.locator('.cp-item')).toHaveCount(3); // aday olmayan ata bağlam için görünür
+    await expect(picker.locator('.cp-item[disabled]')).toHaveText([/Ödeme sistemi/]);
+    await picker.locator('.cp-item', { hasText: 'Ledger DB' }).click();
+    await expect.poll(() => getCode(page)).toMatch(/%% @item ledger-db\n[\s\S]*participant L@\{ "type": "database" \} as Ledger DB/);
+  });
+
+  test('toplu bağlama: kesin eşleşmeler seçili gelir, belirsizler seçilince bağlanır; tüm diyagramlara yazılır', async ({ context }) => {
+    await seed(context, {
+      docs: [
+        doc('d1', 'Aktif', seq('participant D@{ "type": "database" } as Ledger DB\nparticipant X as Bilinmeyen\nX->>D: x\n')),
+        doc('d2', 'Diğer', seq('%% @role service\n%% @color #2fbf7f\nparticipant O as Order Service\nparticipant L as Ledger\nO->>L: y\n'), { updated: Date.now() - 1000 }),
+      ],
+      current: 'd1', catalog: MORE,
+    });
+    const page = await openApp(context);
+    await page.locator('#palRoles .chip-edit').click();
+    await page.locator('.lib-tabs [data-tab="catalog"]').click();
+    await page.locator('.roles-foot .btn', { hasText: 'Eşleşenleri bağla' }).click();
+    const rows = page.locator('.cm-row');
+    await expect(rows).toHaveText([/Ledger DB.*Ledger DB.*aynı ad/, /Ledger.*2 aday/, /Order Service.*Order Service.*aynı ad/]);
+    expect(await rows.locator('input[type=checkbox]').evaluateAll((cbs) => cbs.map((c) => c.checked))).toEqual([true, false, true]);
+    await rows.nth(1).locator('select').selectOption('ledger');
+    await page.locator('.cat-match .btn.primary', { hasText: 'Bağla (3)' }).click();
+    await expect(page.locator('.toast').last()).toContainText('3 katılımcı');
+    await expect.poll(() => getCode(page)).toMatch(/%% @item ledger-db\n/);
+    await expect.poll(() => docCode(page, 'd2')).toMatch(/%% @item order-api\n[\s\S]*%% @item ledger\n[\s\S]*participant L as Ledger Service/);
+    // Ağaç görünümüne dönülür; bekleyen eşleşme kalmadığı için düğme pasif
+    await expect(page.locator('.roles-foot .btn', { hasText: 'Eşleşenleri bağla' })).toBeDisabled();
+  });
+
+  test('mimari ekranı bağlı olmayan eşleşmeleri bildirir ve toplu bağlamayı açar', async ({ context }) => {
+    await seed(context, {
+      docs: [doc('d1', 'A', seq('%% @item order-api\n%% @role service\nparticipant O as Order Service\nparticipant D@{ "type": "database" } as Ledger DB\nO->>D: oku\n'))],
+      current: 'd1', catalog: MORE, settings: { screen: 'arch' },
+    });
+    const page = await openApp(context);
+    await expect(page.locator('#archInfo')).toContainText('1 mesaj sayılmadı');
+    await page.locator('#archInfo .link-btn', { hasText: '1 eşleşeni bağla' }).click();
+    await expect(page.locator('.cm-row')).toHaveCount(1);
+    await page.locator('.cat-match .btn.primary').click();
+    await page.locator('.modal [data-close]').click();
+    await expect(page.locator('#archInfo')).not.toContainText('sayılmadı');
+    await expect(page.locator('#archCanvas .edgeLabel', { hasText: 'oku' })).toHaveCount(1);
+  });
+});

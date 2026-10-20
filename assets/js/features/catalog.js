@@ -17,9 +17,9 @@
   const saveCatalog = () => { Seq.palette.renderPalette(); events.emit('catalog:changed'); return window.SeqStorage.saveKV('catalog', S.catalog).catch(Seq.docs.storageError); };
   const itemById = (id) => id && S.catalog.find((x) => x.id === id);
   const sortByName = (a, b) => a.name.localeCompare(b.name, I18N.getLang());
-  /** Bir öğenin doğrudan alt öğeleri (parent boşsa en üst düzey) ada göre */
-  // (üst öğesi katalogda olmayan öğeler en üst düzeyde görünür)
+  // Üst öğesi katalogda olmayan öğeler en üst düzeyde görünür
   const parentOf = (x) => (x.parent && itemById(x.parent) ? x.parent : null);
+  /** Bir öğenin doğrudan alt öğeleri (parent boşsa en üst düzey) ada göre */
   const childrenOf = (parentId) => S.catalog.filter((x) => parentOf(x) === (parentId || null)).sort(sortByName);
   /** Kökten öğeye yol: [kök, …, öğe] */
   function pathOf(id) {
@@ -30,7 +30,7 @@
   const pathLabel = (id) => pathOf(id).map(displayName).join(' › ');
   /** Öğenin görünen adı: rolün ön/son ekleriyle */
   const displayName = (x) => Seq.roles.composeLabel(Seq.roles.roleById(x.role), x.name);
-  /** id, newParent'ın atası mı (ya da kendisi mi)? Taşımada döngüyü engeller */
+  /** id, of'un atası mı (ya da kendisi mi)? Taşımada döngüyü engeller */
   const isAncestor = (id, of) => pathOf(of).some((x) => x.id === id);
   function uniqueItemId(name) {
     const base = M.slugify(name).toLowerCase() || 'item';
@@ -93,6 +93,92 @@
     return S.docs.filter((d) => marker.test(codeOf(d)))
       .map((d) => ({ doc: d, labels: M.parse(codeOf(d)).participants.filter((p) => p.item === id).map((p) => oneLine(p.label)) }))
       .sort((a, b) => a.doc.name.localeCompare(b.doc.name, I18N.getLang()));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Eşleştirme: kataloğa bağlı olmayan katılımcı hangi öğe olabilir?
+  // 1) Görünen ad birebir aynı (ör. "Ledger DB" ↔ Veritabanı rolündeki "Ledger") → kesin
+  // 2) Ekler çıkarılmış ad öğenin adıyla aynı (ör. "Ledger" ya da "Ledger Svc" + rol eki) → aday
+  // Büyük/küçük harf, Türkçe karakter ve boşluk farkları önemsenmez. Diyagramda zaten bağlı olan öğe önerilmez.
+  // ---------------------------------------------------------------------------
+  const key = (s) => norm(oneLine(s)).replace(/\s+/g, ' ').trim();
+  /** Döner: { items: [öğe], exact } ya da null */
+  function matchesFor(p, model) {
+    if (p.item || !S.catalog.length) return null;
+    const taken = new Set(((model && model.participants) || []).map((q) => q.item).filter(Boolean));
+    const free = S.catalog.filter((x) => !taken.has(x.id));
+    const label = key(p.label || p.id);
+    const exact = free.filter((x) => key(displayName(x)) === label);
+    if (exact.length) return { items: exact, exact: true };
+    const ownCore = key(Seq.roles.stripAffixes(p.label || p.id, Seq.roles.roleById(p.role)));
+    const loose = free.filter((x) => key(x.name) === ownCore || key(Seq.roles.stripAffixes(p.label || p.id, Seq.roles.roleById(x.role))) === key(x.name));
+    return loose.length ? { items: loose, exact: false } : null;
+  }
+  /** Tüm diyagramlarda bağlanabilecek katılımcılar: [{ doc, pid, label, items, exact }] */
+  function collectMatches() {
+    const out = [];
+    S.docs.forEach((d) => {
+      let m;
+      try { m = M.parse(codeOf(d)); } catch { return; }
+      m.participants.forEach((p) => {
+        const r = matchesFor(p, m);
+        if (r) out.push({ doc: d, pid: p.id, label: oneLine(p.label || p.id), items: r.items, exact: r.exact });
+      });
+    });
+    return out.sort((a, b) => a.doc.name.localeCompare(b.doc.name, I18N.getLang()) || a.label.localeCompare(b.label, I18N.getLang()));
+  }
+  /** Seçilen eşleşmeleri uygular: [{ doc, pid, item }]. Döner: bağlanan katılımcı sayısı */
+  function applyMatches(list) {
+    let n = 0, current = false;
+    const byDoc = new Map();
+    list.forEach((x) => { if (!byDoc.has(x.doc.id)) byDoc.set(x.doc.id, { doc: x.doc, rows: [] }); byDoc.get(x.doc.id).rows.push(x); });
+    byDoc.forEach(({ doc, rows }) => {
+      const isCur = S.doc && doc.id === S.doc.id;
+      const model = isCur ? S.model : M.parse(doc.code);
+      let changed = false;
+      rows.forEach(({ pid, item }) => {
+        const x = itemById(item);
+        const p = model.participants.find((q) => q.id === pid && !q.item);
+        // Aynı öğe bu diyagramda başka bir katılımcıya bağlandıysa ikinci kez bağlanmaz
+        if (!x || !p || model.participants.some((q) => q.item === x.id)) return;
+        applyItem(p, x);
+        changed = true;
+        n++;
+      });
+      if (!changed) return;
+      if (isCur) current = true;
+      else { doc.code = M.serialize(model); doc.updated = Date.now(); }
+    });
+    if (current) { Seq.editor.commit(); Seq.editor.flushHistory(); }
+    Seq.docs.persistDocs();
+    return n;
+  }
+  /** Katılımcıyı öğeye bağlar (açık diyagramda) */
+  function linkParticipant(p, x) {
+    applyItem(p, x);
+    Seq.editor.commit();
+    Seq.editor.flushHistory();
+    toast(T('cat.linked', { p: oneLine(p.label), item: pathLabel(x.id) }));
+  }
+  /** Denetim: "katalog öğesiyle eşleşiyor" bulgusu, metni ve "Bağla / Seç…" düğmesi */
+  function registerLintUi() {
+    Seq.lint.addRuleUi('catalogMatch', {
+      ctx: { catalogMatch: (p) => { const m = matchesFor(p, S.model); return m ? m.items.map((x) => x.id) : []; } },
+      describe: (x) => {
+        const p = S.model.participants.find((q) => q.uid === x.uid);
+        const name = oneLine(p ? p.label : x.params.p);
+        return x.params.items.length === 1
+          ? T('lint.catalogMatch', { p: name, item: pathLabel(x.params.items[0]) })
+          : T('lint.catalogMatchN', { p: name, n: x.params.items.length });
+      },
+      fix: (x) => {
+        const p = S.model.participants.find((q) => q.uid === x.uid);
+        const items = x.params.items.map(itemById).filter(Boolean);
+        if (!p || !items.length) return null;
+        if (items.length === 1) return { label: T('cat.linkBtn'), run: () => linkParticipant(p, items[0]) };
+        return { label: T('cat.chooseBtn'), run: (anchor) => openPicker(anchor, { only: items.map((i) => i.id), title: T('cat.pickTitle'), onPick: (it) => linkParticipant(p, it) }) };
+      },
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -160,11 +246,11 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Ağaç seçici (palet ve katılımcı paneli): aranabilir; tıkla ya da katılımcı alanına sürükle
+  // Ağaç seçici (palet, katılımcı paneli, denetim): aranabilir; tıkla ya da katılımcı alanına sürükle
   // ---------------------------------------------------------------------------
   let picker = null;
   /**
-   * opts: { onPick(item), draggable, title }
+   * opts: { onPick(item), draggable, title, only: [öğe id] (yalnızca bunlar ve ataları gösterilir) }
    */
   function openPicker(anchor, opts) {
     if (picker) { const same = picker.anchor === anchor; picker.close(); if (same) return; }
@@ -175,12 +261,17 @@
       list.innerHTML = '';
       const all = flatTree();
       const nq = norm(q.trim());
-      // Aramada eşleşen öğeler atalarıyla birlikte gösterilir
       let rows = all;
+      if (opts.only) {
+        const keep = new Set();
+        opts.only.forEach((id) => pathOf(id).forEach((x) => keep.add(x.id)));
+        rows = rows.filter(({ item }) => keep.has(item.id));
+      }
+      // Aramada eşleşen öğeler atalarıyla birlikte gösterilir
       if (nq) {
         const keep = new Set();
         all.forEach(({ item }) => { if (norm(displayName(item) + ' ' + (item.desc || '')).includes(nq)) pathOf(item.id).forEach((x) => keep.add(x.id)); });
-        rows = all.filter(({ item }) => keep.has(item.id));
+        rows = rows.filter(({ item }) => keep.has(item.id));
       }
       if (!rows.length) {
         list.append(h('li', { class: 'dd-empty' }, ico('help'), T(S.catalog.length ? 'cat.noMatch' : 'cat.empty')));
@@ -188,10 +279,12 @@
       }
       rows.forEach(({ item, depth }) => {
         const r = Seq.roles.roleById(item.role);
-        const hit = nq && norm(displayName(item) + ' ' + (item.desc || '')).includes(nq);
+        const pickable = !opts.only || opts.only.includes(item.id);
+        const hit = (nq ? norm(displayName(item) + ' ' + (item.desc || '')).includes(nq) : true) && pickable;
         const row = h('button', {
-          class: 'dd-item cp-item' + (nq && !hit ? ' dim' : ''), style: `padding-left:${8 + depth * 16}px;--c:${r ? r.color : 'var(--muted)'}`,
+          class: 'dd-item cp-item' + (!hit ? ' dim' : ''), style: `padding-left:${8 + depth * 16}px;--c:${r ? r.color : 'var(--muted)'}`,
           title: item.desc || null, draggable: opts.draggable ? 'true' : null, 'data-id': item.id,
+          disabled: pickable ? null : true, // aday olmayan atalar yalnızca bağlam için gösterilir
           onclick: () => { close(); opts.onPick(item); },
         }, ico('t-' + (r ? r.type : 'participant')), h('span', { class: 'cp-name' }, oneLine(displayName(item))), h('small', null, r ? r.name : '?'));
         if (opts.draggable) {
@@ -236,9 +329,9 @@
   function openSaveDialog(p) {
     if (!S.roles.length) return toast(T('cat.needRole'), 'err');
     const r0 = Seq.roles.roleById(p.role) || S.roles.find((r) => r.type === p.type) || S.roles[0];
+    const role = roleSelect(r0.id);
     // Önerilen ad: seçili rolün ekleri çıkarılmış ad ("Ledger DB" + rol " DB" → "Ledger"); elle yazılınca dokunulmaz
     const suggest = () => oneLine(Seq.roles.stripAffixes(p.label, Seq.roles.roleById(role.value))).trim();
-    const role = roleSelect(r0.id);
     const name = h('input', { class: 'input' });
     name.value = suggest();
     let nameTouched = false;
@@ -280,7 +373,69 @@
   // ---------------------------------------------------------------------------
   // Katalog paneli (Katalog ve roller penceresinin "Katalog" sekmesi): ağaç, sürükleyerek taşıma
   // ---------------------------------------------------------------------------
-  function buildPanel() {
+  /**
+   * opts: { match: true } → doğrudan "Eşleşenleri bağla" görünümüyle açılır
+   */
+  function buildPanel(opts) {
+    const panel = h('div', { class: 'catalog-panel' });
+    const showTree = () => { panel.innerHTML = ''; panel.append(buildTree(showMatch)); };
+    const showMatch = () => { panel.innerHTML = ''; panel.append(buildMatchView(showTree)); };
+    if (opts && opts.match) showMatch(); else showTree();
+    return panel;
+  }
+
+  /** "Eşleşenleri bağla": tüm diyagramlardaki eşleşmeleri gözden geçirip seçilenleri bağlar */
+  function buildMatchView(back) {
+    const rows = collectMatches();
+    const box = h('div', { class: 'cat-match' });
+    const count = h('span', { class: 'dim-info' });
+    const apply = h('button', { class: 'btn primary sm' }, ico('link'), h('span'));
+    const state = rows.map((r) => ({ r, on: r.items.length === 1, item: r.items.length === 1 ? r.items[0].id : '' }));
+    const update = () => {
+      const n = state.filter((s) => s.on && s.item).length;
+      apply.lastChild.textContent = T('cat.matchApply', { n });
+      apply.disabled = !n || null;
+      count.textContent = T('cat.matchSum', { n: rows.length, m: new Set(rows.map((r) => r.doc.id)).size });
+    };
+    box.append(h('div', { class: 'cat-match-head' },
+      h('button', { class: 'btn ghost sm', onclick: back }, '← ', T('cat.title')),
+      h('b', null, T('cat.matchTitle')), count));
+    box.append(h('p', { class: 'roles-intro' }, T('cat.matchIntro')));
+    if (!rows.length) box.append(h('p', { class: 'dd-empty ok' }, ico('check'), T('cat.matchNone')));
+    let lastDoc = null;
+    const list = h('div', { class: 'cat-match-list' });
+    state.forEach((s) => {
+      if (s.r.doc !== lastDoc) { lastDoc = s.r.doc; list.append(h('div', { class: 'cm-doc' }, ico('file'), s.r.doc.name)); }
+      const cb = h('input', { type: 'checkbox' });
+      cb.checked = s.on;
+      cb.addEventListener('change', () => { s.on = cb.checked; update(); });
+      let target;
+      if (s.r.items.length === 1) {
+        target = h('span', { class: 'cm-target' }, ico('layers'), pathLabel(s.r.items[0].id),
+          h('span', { class: 'cm-kind' + (s.r.exact ? ' exact' : '') }, T(s.r.exact ? 'cat.matchExact' : 'cat.matchLoose')));
+      } else {
+        // Belirsiz: kullanıcı seçer; seçilmeden bağlanmaz
+        const sel = h('select', { class: 'select sm' }, h('option', { value: '' }, T('cat.matchChoose', { n: s.r.items.length })),
+          s.r.items.map((x) => h('option', { value: x.id }, pathLabel(x.id))));
+        sel.addEventListener('change', () => { s.item = sel.value; s.on = !!sel.value; cb.checked = s.on; update(); });
+        target = h('span', { class: 'cm-target' }, sel);
+      }
+      list.append(h('label', { class: 'cm-row', 'data-doc': s.r.doc.id, 'data-pid': s.r.pid }, cb, h('span', { class: 'cm-label' }, s.r.label), h('span', { class: 'cm-arrow' }, '→'), target));
+    });
+    box.append(list);
+    apply.addEventListener('click', () => {
+      const n = applyMatches(state.filter((s) => s.on && s.item).map((s) => ({ doc: s.r.doc, pid: s.r.pid, item: s.item })));
+      toast(T('cat.matchDone', { n }));
+      events.emit('catalog:changed');
+      back();
+    });
+    if (rows.length) box.append(h('div', { class: 'roles-foot' }, h('div', { class: 'row', style: 'flex:none' }), h('div', { class: 'row', style: 'flex:none' }, apply)));
+    update();
+    return box;
+  }
+
+  /** Ağaç görünümü; onMatch: "Eşleşenleri bağla" görünümüne geçiş */
+  function buildTree(onMatch) {
     // Değişiklikler gecikmeli olarak tüm diyagramlara yayılır; eski tanım "snap" içinde tutulur
     const snap = new Map(S.catalog.map((x) => [x.id, { ...x }]));
     const pending = new Set();
@@ -413,12 +568,15 @@
     });
 
     render();
-    return h('div', { class: 'catalog-panel' },
+    const matchCount = collectMatches().length;
+    return h('div', null,
       h('p', { class: 'roles-intro' }, T('cat.intro')),
       tree,
       h('div', { class: 'roles-foot' },
         h('div', { class: 'row', style: 'flex:none' },
-          h('button', { class: 'btn sm', onclick: () => addItem(null) }, ico('plus'), T('cat.add'))),
+          h('button', { class: 'btn sm', onclick: () => addItem(null) }, ico('plus'), T('cat.add')),
+          h('button', { class: 'btn sm ghost', title: T('cat.matchTitleHint'), disabled: !matchCount || null, onclick: onMatch },
+            ico('link'), T('cat.matchBtn'), matchCount ? h('span', { class: 'cat-count' }, String(matchCount)) : null)),
         h('div', { class: 'row', style: 'flex:none' },
           h('button', { class: 'btn sm ghost', onclick: () => {
             // Öğelerle birlikte kullandıkları roller de dosyaya girer (başka tarayıcıda eksiksiz içe alınabilsin)
@@ -440,10 +598,11 @@
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
   function init() {
     S.catalog = [];
+    registerLintUi();
   }
 
   Seq.catalog = {
-    init, adoptItems, applyItem, buildPanel, childrenOf, displayName, itemById, openPicker, openSaveDialog, pathLabel, pathOf,
-    saveCatalog, stripKnownDefs, unknownItems, usageOf, withDefs,
+    init, adoptItems, applyItem, buildPanel, childrenOf, displayName, itemById, linkParticipant, matchesFor, openPicker, openSaveDialog,
+    pathLabel, pathOf, saveCatalog, stripKnownDefs, unknownItems, usageOf, withDefs,
   };
 })(window.Seq = window.Seq || {});
