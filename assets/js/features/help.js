@@ -29,6 +29,7 @@
           ${rows([
             [T('help.addP'), T('help.addPd')],
             [T('help.cat'), T('help.catd')],
+            [T('help.arch'), T('help.archd')],
             [T('help.drawM'), T('help.drawMd')],
             [T('help.addS'), T('help.addSd')],
             [T('help.addB'), T('help.addBd')],

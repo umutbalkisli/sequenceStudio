@@ -10,6 +10,7 @@
  *   when()   — ek koşul; false dönerse satır atlanır
  *   run(e)   — işlem
  *   keepDefault — true ise tarayıcının varsayılan davranışı engellenmez
+ *   global   — true ise mimari ekranında da çalışır (diğerleri yalnızca akış ekranında)
  */
 (function (Seq) {
   'use strict';
@@ -30,13 +31,13 @@
   }
 
   const table = [
-    { keys: ['escape'], keepDefault: true, run: escape },
+    { keys: ['escape'], keepDefault: true, global: true, run: escape },
     { keys: ['z'], mod: true, alt: false, shift: false, run: () => Seq.editor.undo() },
     { keys: ['z'], mod: true, alt: false, shift: true, run: () => Seq.editor.redo() },
     { keys: ['y'], mod: true, alt: false, run: () => Seq.editor.redo() },
     { keys: ['s'], mod: true, alt: false, run: () => { Seq.editor.flushHistory(); Seq.docs.doSave(); toast(T('saved.toast')); } },
     { keys: ['e'], mod: true, alt: false, run: () => Seq.export.openExport() },
-    { keys: ['k'], mod: true, alt: false, run: () => (Seq.search.isOpen() ? Seq.search.closeSearch() : Seq.search.openSearch()) },
+    { keys: ['k'], mod: true, alt: false, global: true, run: () => (Seq.search.isOpen() ? Seq.search.closeSearch() : Seq.search.openSearch()) },
     { keys: ['1'], mod: true, alt: false, run: () => Seq.layout.setView('builder') },
     { keys: ['2'], mod: true, alt: false, run: () => Seq.layout.setView('code') },
     { keys: ['b'], mod: true, alt: false, run: () => Seq.layout.setEditorCollapsed(!S.settings.editorCollapsed) },
@@ -57,6 +58,7 @@
   function matches(s, e, mod, typing) {
     return s.keys.includes(e.key.toLowerCase())
       && flagOk(s.mod, mod) && flagOk(s.alt, e.altKey) && flagOk(s.shift, e.shiftKey)
+      && (s.global || !document.body.classList.contains('screen-arch'))
       && (s.typing !== false || !typing)
       && (!s.when || s.when());
   }

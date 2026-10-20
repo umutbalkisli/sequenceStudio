@@ -4,7 +4,7 @@
  */
 (function (Seq) {
   'use strict';
-  const { $, S, T, el, icon, saveSettings } = Seq.core;
+  const { $, S, T, el, events, icon, saveSettings } = Seq.core;
 
   // ---------------------------------------------------------------------------
   // Tema
@@ -69,11 +69,15 @@
         useMaxWidth: false, mirrorActors: !!S.settings.mirror, actorMargin: 64, boxMargin: 10, noteMargin: 12,
         messageMargin: 38, boxTextMargin: 6, diagramMarginX: 24, diagramMarginY: 16, wrap: false,
       },
+      // Mimari (C4) görünümü
+      flowchart: { useMaxWidth: false, htmlLabels: false, curve: 'basis', nodeSpacing: 46, rankSpacing: 80, padding: 14, diagramPadding: 16 },
     };
     if (STUDIO[t]) { cfg.theme = 'base'; cfg.themeVariables = STUDIO[t]; cfg.themeCSS = STUDIO_CSS; }
     else cfg.theme = t;
     mermaid.initialize(cfg);
     el.canvas.style.setProperty('--paper-bg', PAPER_BG[t] || '#ffffff');
+    $('#archScreen').style.setProperty('--paper-bg', PAPER_BG[t] || '#ffffff');
+    events.emit('theme:changed');
   }
 
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */

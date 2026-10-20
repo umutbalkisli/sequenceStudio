@@ -12,9 +12,9 @@
  */
 (function (Seq) {
   'use strict';
-  const { $$, I18N, M, S, T, closeModal, debounce, downloadBlob, dropdown, h, ico, norm, oneLine, openModal, toast } = Seq.core;
+  const { $$, I18N, M, S, T, closeModal, debounce, downloadBlob, dropdown, events, h, ico, norm, oneLine, openModal, toast } = Seq.core;
 
-  const saveCatalog = () => { Seq.palette.renderPalette(); return window.SeqStorage.saveKV('catalog', S.catalog).catch(Seq.docs.storageError); };
+  const saveCatalog = () => { Seq.palette.renderPalette(); events.emit('catalog:changed'); return window.SeqStorage.saveKV('catalog', S.catalog).catch(Seq.docs.storageError); };
   const itemById = (id) => id && S.catalog.find((x) => x.id === id);
   const sortByName = (a, b) => a.name.localeCompare(b.name, I18N.getLang());
   /** Bir öğenin doğrudan alt öğeleri (parent boşsa en üst düzey) ada göre */

@@ -14,6 +14,7 @@ assets/js/
   lib/                     pure logic with no DOM state; usable from Node (unit tests)
     model.js               Mermaid ⇄ model parser/serializer, auto activation, refs expansion  → window.SeqModel
     lint.js                diagram check rules                                                 → window.SeqLint
+    c4.js                  C4 views from the catalog + relationships derived from diagrams      → window.SeqC4
     drawio.js              rendered SVG → draw.io XML                                          → window.SeqDrawio
     zip.js                 minimal ZIP writer                                                   → Seq.zip
   core/                    shared infrastructure
@@ -78,6 +79,9 @@ The document lifecycle is published as events, so `docs.js` doesn't need to know
 | `docs:persisted` | none               | the workspace was written to storage          | backlinks, backup |
 | `code:changed`   | `{ src }`          | the code/model changed (any source)           | lint |
 | `builder:rendered` | none             | the builder's step list was redrawn           | lint |
+| `catalog:changed` | none              | the catalog was edited                        | arch |
+| `theme:changed`  | none               | Mermaid was re-initialized for a new theme    | arch |
+| `app:ready`      | none               | boot finished (data loaded, first doc open)   | arch |
 
 `events.on(name, fn)` returns an unsubscribe function.
 
@@ -172,6 +176,24 @@ A participant linked to an item takes its role and its name (`composeLabel(role,
 keeps following the item as long as it wasn't changed in that diagram. `features/library.js` shows both in
 one window with two tabs, and `features/defs-notice.js` offers to import unknown roles and items that come
 with shared diagrams. When references are expanded inline, participants linked to the same item are merged.
+
+## Architecture screen (C4)
+
+The top bar switches between two screens in the same page: **Flows** (sequence diagrams) and
+**Architecture**. Staying in one page keeps a single IndexedDB origin, which separate pages opened from
+`file://` would not reliably share.
+
+The architecture screen draws C4 views from two inputs, so it needs no extra maintenance:
+
+- **Elements** come from the catalog hierarchy. A root item is a *system* (or a *person* if its role is an
+  actor), an inner item is a *container*, and a leaf is a *component*.
+- **Relationships** are derived from the sequence diagrams. Every call between two catalog-linked
+  participants is a "uses" relationship (replies and unlinked participants are ignored).
+
+`lib/c4.js` aggregates relationships to the level being viewed. C1 shows the root items. Zooming into an
+item shows its children inside a boundary, and the neighbors they talk to outside it, at the level just below
+the common ancestor (a sibling container in C3, another system in C2). The result is rendered as a Mermaid
+flowchart. Sequence diagrams themselves never get extra boxes.
 
 ## State and storage
 

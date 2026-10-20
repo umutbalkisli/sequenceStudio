@@ -28,6 +28,10 @@
           <span class="brand-name">Sequence<b>Studio</b></span>
         </div>
         <span class="tb-sep"></span>
+        <div class="seg screen-seg" id="screenSeg" role="tablist">
+          <button data-screen="seq" class="active" role="tab" data-i18n-title="screen.seqTitle"><i data-icon="message"></i><span data-i18n="screen.seq"></span></button>
+          <button data-screen="arch" role="tab" data-i18n-title="screen.archTitle"><i data-icon="layers"></i><span data-i18n="screen.arch"></span></button>
+        </div>
         <input id="docName" class="doc-name" spellcheck="false" data-i18n-ph="doc.untitled" />
         <span class="save-state" id="saveState" data-i18n-title="tb.savedTitle"><i data-icon="check"></i><span data-i18n="tb.saved"></span></span>
         <button class="icon-btn sm" id="btnHistory" data-i18n-title="hist.btn"><i data-icon="history"></i></button>
@@ -186,6 +190,22 @@
         </div>
       </section>
     </main>
+
+    <!-- MİMARİ (C4): katalog hiyerarşisi + diyagramlardan türetilen ilişkiler -->
+    <section class="arch-screen" id="archScreen" hidden>
+      <div class="arch-head">
+        <nav class="arch-crumbs" id="archCrumbs"></nav>
+        <span class="arch-info" id="archInfo"></span>
+        <div class="arch-actions" id="archExport">
+          <button class="btn ghost sm" id="archEditCatalog"><i data-icon="edit"></i><span data-i18n="cat.manage"></span></button>
+          <span class="ph-sep"></span>
+          <button class="btn ghost sm" data-fmt="svg"><i data-icon="vector"></i>SVG</button>
+          <button class="btn ghost sm" data-fmt="png"><i data-icon="image"></i>PNG</button>
+          <button class="btn ghost sm" data-fmt="mmd"><i data-icon="code"></i>Mermaid</button>
+        </div>
+      </div>
+      <div class="arch-canvas" id="archCanvas"></div>
+    </section>
   </div>
 
   <!-- Diyagram listesi çekmecesi -->
@@ -231,6 +251,7 @@
   <script src="assets/js/core/i18n.js"></script>
   <script src="assets/js/lib/model.js"></script>
   <script src="assets/js/lib/lint.js"></script>
+  <script src="assets/js/lib/c4.js"></script>
   <script src="assets/js/lib/drawio.js"></script>
   <script src="assets/js/lib/zip.js"></script>
   <script src="assets/js/data/templates.js"></script>
@@ -249,6 +270,7 @@
   <script src="assets/js/features/refs.js"></script>
   <script src="assets/js/features/lint.js"></script>
   <script src="assets/js/features/backlinks.js"></script>
+  <script src="assets/js/features/architecture.js"></script>
   <script src="assets/js/features/code-editor.js"></script>
   <script src="assets/js/features/layout.js"></script>
   <script src="assets/js/features/palette.js"></script>
