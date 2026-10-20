@@ -89,6 +89,7 @@
   function buildExportSvg(bg, src = $('.paper svg', el.canvas)) {
     if (!src) return null;
     const svg = src.cloneNode(true);
+    svg.querySelectorAll('.ref-toggle').forEach((n) => n.remove()); // yalnızca önizlemedeki etkileşim için
     const vb = src.viewBox && src.viewBox.baseVal && src.viewBox.baseVal.width ? src.viewBox.baseVal : { x: 0, y: 0, width: src.getBBox().width, height: src.getBBox().height };
     const pad = 16;
     const x = vb.x - pad, y = vb.y - pad, w = Math.ceil(vb.width + pad * 2), ht = Math.ceil(vb.height + pad * 2);
@@ -161,7 +162,7 @@
     const exportBuilt = async (drawioName) => {
       if (inline()) return Seq.preview.renderDocSvg(getExp(false).code, drawioName ? { drawio: drawioName } : null);
       const built = buildExportSvg(exportBg());
-      if (built && drawioName) built.drawio = toDrawio($('.paper svg', el.canvas), S.model, drawioName);
+      if (built && drawioName) built.drawio = toDrawio($('.paper svg', el.canvas), S.renderModel || S.model, drawioName);
       return built;
     };
     const exportText = () => Seq.catalog.withDefs(inline() ? getExp(true).code : S.code);

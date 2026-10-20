@@ -91,11 +91,20 @@ The live preview and the off-screen renderer (used by exports) run the same pipe
 
 1. **Transforms** `addTransform(name, fn(model) → copy | null, order)` change a *copy* of the model
    before it is serialized for Mermaid. They never change what's in the editor. Return `null` for "no
-   change". Built in: `placeholders` (10), `ref-markers` (20).
+   change". A transform also receives `ctx = { live }`; `live` is true only for the on-screen preview, so
+   session-only choices don't leak into exports of other diagrams. Built in: `ref-expand` (5),
+   `placeholders` (10), `ref-markers` (20).
 2. Mermaid renders the SVG.
 3. **Decorators** `addDecorator(name, fn(svg, { model, renderModel, settings }), order)` post-process
    the SVG. Built in: `participant-colors` (10), `block-colors` (20), `message-tones` (30), `refs` (40),
    `legend` (50).
+   Decorators match SVG elements to the *rendered* model (`renderModel`). It can hold more than the editor
+   model, for example expanded references or placeholder notes.
+
+Expanding a reference in the preview uses the same `expandRefs` as inline export, with a
+`shouldExpand(note, key)` filter. Every reference note gets a path key (`/pay#1/tds#1`), so nested references
+can be toggled one by one. The default comes from the note's `expand` flag. The +/− on the note stores a
+session override per diagram.
 
 ### Export formats (`Seq.export.registerFormat`)
 
@@ -160,7 +169,7 @@ The model stores studio-only data as Mermaid comments, so exported code stays va
 | `%% @item id`           | catalog item of the next participant                                |
 | `%% @itemdef id {json}` | catalog item definition (name, role, parent, desc), carried along  |
 | `%% @tone name`         | arrow tone of the next message (`success`, `error`, `warning`, `info`) |
-| `%% @ref docId`         | the next note links to another diagram                              |
+| `%% @ref docId [expand]` | the next note links to another diagram; `expand` shows it expanded in the preview by default |
 | `%% @auto`              | the following activation lines were generated; a blank line ends the group |
 
 ## Roles and catalog

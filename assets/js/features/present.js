@@ -57,6 +57,7 @@
     if (!src || !S.lastOk) return toast(T('pres.noDiagram'), 'err');
     Seq.editor.flushHistory();
     const svg = src.cloneNode(true);
+    svg.querySelectorAll('.ref-toggle').forEach((n) => n.remove());
     svg.removeAttribute('width');
     svg.removeAttribute('height');
     svg.style.maxWidth = '';

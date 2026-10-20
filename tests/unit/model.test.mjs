@@ -197,6 +197,21 @@ describe('referansları açma (expandRefs)', () => {
     assert.ok(items(m, 'message').some((x) => x.from === 'L' && x.to === 'DB'));
   });
 
+  test('"expand" soneki korunur; seçmeli açma yol anahtarlarıyla yapılır; açılan öğeler işaretlenir', () => {
+    const src = seq('participant O as Order\n%% @ref pay expand\nNote over O: Ödeme\n%% @ref pay\nNote over O: Tekrar\n');
+    assert.match(roundTrip(src), /%% @ref pay expand\n\s*Note over O: Ödeme\n\s*%% @ref pay\n\s*Note over O: Tekrar/);
+    const m = M.parse(src);
+    assert.deepEqual(items(m, 'note').map((n) => !!n.expand), [true, false]);
+    const keys = [];
+    const r = M.expandRefs(m, resolve, { rootId: 'co', shouldExpand: (n, k) => { keys.push(k); return !!n.expand; } });
+    // İlk not açıldı (içindeki 3DS referansı kendi bayrağına göre kapalı kaldı), ikincisi not olarak durdu
+    assert.deepEqual(keys, ['/pay#1', '/pay#1/tds#1', '/pay#2']);
+    const notes = items(r.model, 'note');
+    assert.deepEqual(notes.filter((n) => n.ref).map((n) => [n.text, n.refKey, !!n.refHeader]),
+      [['Ödeme akışı', '/pay#1', true], ['3DS', '/pay#1/tds#1', false], ['Tekrar', '/pay#2', false]]);
+    assert.ok(items(r.model, 'message').every((x) => x.fromRef === 'pay'));
+  });
+
   test('eksik hedef raporlanır; girdi model değişmez', () => {
     const src = M.parse(seq('%% @ref yok\nNote over A: x\n'));
     const before = M.serialize(src);

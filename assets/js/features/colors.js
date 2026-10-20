@@ -171,9 +171,9 @@
   }
 
   function init() {
-    Seq.preview.addDecorator('participant-colors', (svg, c) => colorizeSvg(svg, c.settings.colorize, c.model), 10);
-    Seq.preview.addDecorator('block-colors', (svg, c) => colorizeBlocks(svg, c.settings.colorize, c.model), 20);
-    Seq.preview.addDecorator('message-tones', (svg, c) => colorizeMessages(svg, c.model), 30);
+    Seq.preview.addDecorator('participant-colors', (svg, c) => colorizeSvg(svg, c.settings.colorize, c.renderModel || c.model), 10);
+    Seq.preview.addDecorator('block-colors', (svg, c) => colorizeBlocks(svg, c.settings.colorize, c.renderModel || c.model), 20);
+    Seq.preview.addDecorator('message-tones', (svg, c) => colorizeMessages(svg, c.renderModel || c.model), 30);
   }
 
   Seq.colors = { init, colorizeBlocks, colorizeMessages, colorizeSvg };

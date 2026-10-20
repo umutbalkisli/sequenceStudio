@@ -77,7 +77,8 @@
   const TONES = ['success', 'error', 'warning', 'info'];
   const TONE_RE = /^%%\s*@tone\s+(success|error|warning|info)\s*$/i;
   // Notun başka bir diyagrama bağlantısı ("ref"): Studio'daki diyagram kimliği
-  const REF_RE = /^%%\s*@ref\s+([A-Za-z0-9_-]+)\s*$/;
+  // "%% @ref id" bir sonraki notu başka diyagrama bağlar; "expand" soneki önizlemede içinin açık görüneceğini belirtir
+  const REF_RE = /^%%\s*@ref\s+([A-Za-z0-9_-]+)(\s+expand)?\s*$/;
   // Rol tanımı (paylaşılan/dışa aktarılan kodda taşınır; alıcı rolü kütüphanesine ekleyebilsin)
   const ROLEDEF_RE = /^%%\s*@roledef\s+([A-Za-z0-9_-]+)\s+(\{.*\})\s*$/;
   // Katalog öğesi (C4 tarzı hiyerarşideki somut katılımcı): "%% @item id" bir sonraki katılımcıya bağlanır;
@@ -192,7 +193,7 @@
       if (refM) {
         let j = i + 1;
         while (j < lines.length && !lines[j].trim()) j++;
-        if (j < lines.length && NOTE_RE.test(lines[j].trim())) { pendingRef = refM[1]; continue; }
+        if (j < lines.length && NOTE_RE.test(lines[j].trim())) { pendingRef = { id: refM[1], expand: !!refM[2] }; continue; }
       }
       const toneM = line.match(TONE_RE);
       if (toneM) {
@@ -233,7 +234,7 @@
         const targets = m[2].split(',').map((s) => s.trim()).filter(Boolean).slice(0, 2);
         targets.forEach(ensureParticipant);
         const note = { uid: uid(), line: i, kind: 'note', position: m[1].toLowerCase(), targets, text: decodeText(m[3]) };
-        if (pendingRef) { note.ref = pendingRef; pendingRef = null; }
+        if (pendingRef) { note.ref = pendingRef.id; if (pendingRef.expand) note.expand = true; pendingRef = null; }
         push(note);
         continue;
       }
@@ -383,7 +384,7 @@
         }
         case 'note': {
           const targets = (it.position === 'over' ? it.targets.slice(0, 2) : it.targets.slice(0, 1)).filter(Boolean);
-          if (it.ref) out.push(ind + '%% @ref ' + it.ref);
+          if (it.ref) out.push(ind + '%% @ref ' + it.ref + (it.expand ? ' expand' : ''));
           out.push(ind + 'Note ' + it.position + ' ' + targets.join(',') + ': ' + encodeText(it.text));
           break;
         }
@@ -502,6 +503,13 @@
    * - Döngüler (A → B → A) ve maxDepth üstü bağlantı olarak bırakılır.
    * Döner: { model, included: [{ id, name, depth }], missing: [id], cycles: [name] }
    */
+  /**
+   * Referans notlarını bağlı diyagramın akışıyla değiştirir (iç içe, döngü korumalı).
+   * opts: { rootId, maxDepth, shouldExpand(note, key) → bool (verilmezse hepsi açılır) }
+   * Her referans notuna (açılan ya da açılmayan) yolu belirten bir anahtar yazılır: refKey = "üst/ref#sıra";
+   * açılan notun yerini alan başlık notu da aynı anahtarı taşır (önizlemede aç/kapat için).
+   * Açılan akışın öğeleri fromRef ile işaretlenir.
+   */
   function expandRefs(model, resolve, opts) {
     opts = opts || {};
     const maxDepth = opts.maxDepth || 6;
@@ -539,20 +547,26 @@
         else if (it.kind === 'block') it.branches.forEach((b) => { b.uid = uid(); });
       });
     }
-    function expandList(host, items, stack) {
+    function expandList(host, items, stack, parentKey, seen) {
+      seen = seen || {};
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
-        if (it.kind === 'block') { it.branches.forEach((b) => expandList(host, b.items, stack)); continue; }
-        if (it.kind !== 'note' || !it.ref) continue;
+        if (it.kind === 'block') { it.branches.forEach((b) => expandList(host, b.items, stack, parentKey, seen)); continue; }
+        if (it.kind !== 'note' || !it.ref || it.refHeader) continue;
+        seen[it.ref] = (seen[it.ref] || 0) + 1;
+        const refKey = parentKey + '/' + it.ref + '#' + seen[it.ref];
+        it.refKey = refKey;
+        if (opts.shouldExpand && !opts.shouldExpand(it, refKey)) continue;
         const src = resolve(it.ref);
         if (!src) { if (!report.missing.includes(it.ref)) report.missing.push(it.ref); continue; }
         if (stack.includes(it.ref) || stack.length > maxDepth) { if (!report.cycles.includes(src.name)) report.cycles.push(src.name); continue; }
         const sub = JSON.parse(JSON.stringify(src.model));
         report.included.push({ id: it.ref, name: src.name, depth: stack.length });
         // Önce bağlı diyagramın kendi referansları açılır (katılımcıları da ona eklenir)
-        expandList(sub, sub.items, stack.concat(it.ref));
+        expandList(sub, sub.items, stack.concat(it.ref), refKey, {});
         const map = mergeParticipants(host, sub, it.targets[0]);
         remap(sub.items, map);
+        walk(sub.items, (x) => { if (!x.fromRef) x.fromRef = it.ref; });
         // Başlık notunun kapsamı: bağlı katılımcı + alt akışta yer alanlar (ana diyagram sırasına göre en soldan en sağa)
         const involved = new Set(it.targets);
         walk(sub.items, (x) => {
@@ -561,12 +575,12 @@
         });
         const order = host.participants.map((p) => p.id).filter((id) => involved.has(id));
         const span = order.length > 1 ? [order[0], order[order.length - 1]] : [order[0] || it.targets[0]];
-        const header = { uid: uid(), kind: 'note', position: 'over', targets: span, text: src.name, ref: it.ref, refHeader: true };
+        const header = { uid: uid(), kind: 'note', position: 'over', targets: span, text: src.name, ref: it.ref, refHeader: true, refKey };
         const tint = 'rgba(58, 141, 222, ' + (0.07 + Math.min(stack.length, 4) * 0.035).toFixed(3) + ')';
         items.splice(i, 1, { uid: uid(), kind: 'block', type: 'rect', branches: [{ uid: uid(), label: tint, items: [header].concat(sub.items) }] });
       }
     }
-    expandList(out, out.items, opts.rootId ? [opts.rootId] : []);
+    expandList(out, out.items, opts.rootId ? [opts.rootId] : [], '', {});
     return Object.assign({ model: out }, report);
   }
 

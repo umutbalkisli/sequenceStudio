@@ -1254,3 +1254,8 @@ body.screen-arch .tb-right .btn-group, body.screen-arch #btnTemplates, body.scre
 .arch-canvas .arch-node, .arch-canvas .arch-edge { cursor: pointer; }
 .arch-zoombar[hidden] { display: none; }
 body:not(.screen-arch) .arch-zoombar { display: none; }
+
+/* Referansın içini aç/kapat */
+.paper .ref-toggle { cursor: pointer; }
+.paper .ref-toggle:hover circle { filter: brightness(.94); stroke-width: 2.2px !important; }
+.ref-expand.on { color: var(--c-ref); background: color-mix(in srgb, var(--c-ref) 12%, transparent); }

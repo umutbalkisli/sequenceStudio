@@ -78,7 +78,7 @@
   }
 
   function init() {
-    Seq.preview.addDecorator('legend', (svg, c) => addLegend(svg, c.model), 50);
+    Seq.preview.addDecorator('legend', (svg, c) => addLegend(svg, c.renderModel || c.model), 50);
   }
 
   Seq.legend = { init, addLegend };

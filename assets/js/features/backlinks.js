@@ -9,7 +9,7 @@
   const { $, I18N, M, S, T, docCode, dropdown, events, h, ico } = Seq.core;
 
   /** Kimlikler [A-Za-z0-9_-] olduğundan düzenli ifadeye doğrudan girer */
-  const refLine = (id) => new RegExp('^\\s*%%\\s*@ref\\s+' + id + '\\s*$', 'gm');
+  const refLine = (id) => new RegExp('^\\s*%%\\s*@ref\\s+' + id + '(\\s+expand)?\\s*$', 'gm');
 
   /** id'li diyagrama bağlanan diyagramlar: [{ doc, count }] ada göre sıralı */
   function backlinksOf(id) {

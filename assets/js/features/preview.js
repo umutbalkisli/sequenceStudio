@@ -18,9 +18,10 @@
   function addTransform(name, fn, order = 100) { pipeline.transforms.push({ name, fn, order }); pipeline.transforms.sort(byOrder); }
   function addDecorator(name, fn, order = 100) { pipeline.decorators.push({ name, fn, order }); pipeline.decorators.sort(byOrder); }
   /** Çizim için model: dönüşümler uygulanmış kopya; hiçbiri değiştirmediyse null. */
-  function prepareModel(model) {
+  /** ctx: { live } — live: canlı önizleme (oturumdaki geçici seçimler uygulanır), değilse ekran dışı çizim */
+  function prepareModel(model, ctx) {
     let cur = model, changed = false;
-    pipeline.transforms.forEach(({ fn }) => { const r = fn(cur); if (r) { cur = r; changed = true; } });
+    pipeline.transforms.forEach(({ fn }) => { const r = fn(cur, ctx || {}); if (r) { cur = r; changed = true; } });
     return changed ? cur : null;
   }
   function decorate(svg, ctx) {
@@ -49,7 +50,7 @@
     const id = 'mmd' + seq;
     try {
       await mermaid.parse(code);
-      const prepared = prepareModel(S.model);
+      const prepared = prepareModel(S.model, { live: true });
       const { svg } = await mermaid.render(id, prepared ? M.serialize(prepared) : code);
       if (seq !== S.renderSeq) return;
       S.renderModel = prepared || S.model; // önizlemede çizilen model (yer tutucu notlar dahil)
@@ -112,6 +113,9 @@
 
   /** Önizlemede bir mesaja/nota tıklanınca editörde ilgili satıra git. */
   function onPreviewClick(target) {
+    // Referansın içini aç/kapat düğmesi
+    const tg = target.closest && target.closest('.ref-toggle');
+    if (tg) { Seq.refs.toggleExpand(tg.getAttribute('data-key')); return; }
     // Referans notu: bağlı diyagramı aç
     const refG = target.closest && target.closest('g.ref-note');
     if (refG) { Seq.refs.followRef(refG.getAttribute('data-ref')); return; }
@@ -126,16 +130,24 @@
       M.walk((S.renderModel || S.model).items, (it) => { if (it.kind === 'note') rn.push(it); });
       const hit = rn[gi];
       if (!hit || hit.uid === 'ph') return;
+      if (hit.fromRef) return Seq.refs.followRef(hit.fromRef); // açılmış referansın içindeki not
       const real = [];
       M.walk(S.model.items, (it) => { if (it.kind === 'note') real.push(it); });
       const ri = real.findIndex((n) => n.uid === hit.uid);
       if (ri < 0) return;
       return gotoNode('note', ri);
     }
-    const all = $$('text.messageText', el.canvas);
-    const idx = all.indexOf(t);
-    if (idx < 0) return;
-    return gotoNode(kind, idx);
+    // Mesajlar: çizilen modeldeki sırayla eşlenir (açılmış referanslar ek mesaj getirir), sonra kimlikle asıl modele
+    const idx = $$('text.messageText', el.canvas).indexOf(t);
+    const rm = [];
+    M.walk((S.renderModel || S.model).items, (it) => { if (it.kind === 'message') rm.push(it); });
+    const hit = rm[idx];
+    if (!hit) return;
+    if (hit.fromRef) return Seq.refs.followRef(hit.fromRef); // açılmış referansın içindeki mesaj: o diyagrama git
+    const real = [];
+    M.walk(S.model.items, (it) => { if (it.kind === 'message') real.push(it); });
+    const ri = real.findIndex((n) => n.uid === hit.uid);
+    if (ri >= 0) gotoNode(kind, ri);
   }
   /** kind türündeki idx'inci adıma git (kod görünümünde satır, görsel görünümde adım) */
   function gotoNode(kind, idx) {
@@ -161,13 +173,13 @@
     document.body.append(host);
     try {
       await mermaid.parse(code);
-      const prepared = prepareModel(model);
+      const prepared = prepareModel(model, { live: false });
       const { svg } = await mermaid.render(id, prepared ? M.serialize(prepared) : code);
       host.innerHTML = '<div class="paper">' + svg + '</div>';
       const svgEl = $('svg', host);
       decorate(svgEl, { model, renderModel: prepared || model });
       const built = Seq.export.buildExportSvg(Seq.export.exportBg(), svgEl);
-      if (built && opts && opts.drawio) built.drawio = Seq.export.toDrawio(svgEl, model, opts.drawio);
+      if (built && opts && opts.drawio) built.drawio = Seq.export.toDrawio(svgEl, prepared || model, opts.drawio);
       return built;
     } finally {
       host.remove();

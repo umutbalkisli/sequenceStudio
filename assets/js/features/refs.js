@@ -1,6 +1,7 @@
 /* Sequence Studio — diyagramlar arası bağlantı
  *
- * Referans notlarının önizlemede çizimi, bağlantıyla gezinme (geri dönüş), ad değişikliğinin yayılması
+ * Referans notlarının önizlemede çizimi, bağlantıyla gezinme (geri dönüş), ad değişikliğinin yayılması,
+ * önizlemede referansın içini açıp kapama (varsayılan: "%% @ref id expand", oturumda notun köşesindeki +/−)
  * ve dışa aktarmada referansları içine çizme.
  */
 (function (Seq) {
@@ -33,6 +34,40 @@
     box.append(h('p', { class: 'rr-note' }, T('exp.refsNote')));
     return box;
   }
+
+  // ---------------------------------------------------------------------------
+  // Önizlemede referansın içini açma/kapama
+  // Varsayılan durum notta saklanır (note.expand). Önizlemedeki +/− düğmesi yalnızca bu oturumda, bu diyagram
+  // için geçerli bir seçim yapar; anahtar referansın yoludur (iç içe referanslar ayrı ayrı açılabilir).
+  // ---------------------------------------------------------------------------
+  const expandOverrides = new Map(); // diyagram id → Map(refKey → açık mı)
+  const overrides = () => {
+    const id = (S.doc && S.doc.id) || '';
+    if (!expandOverrides.has(id)) expandOverrides.set(id, new Map());
+    return expandOverrides.get(id);
+  };
+  /** Çizim dönüşümü: açık olması gereken referansların yerine bağlı akışı koyar; tüm referans notlarına yol anahtarı yazar */
+  function refExpand(model, ctx) {
+    let hasRef = false;
+    M.walk(model.items, (it) => { if (it.kind === 'note' && it.ref) { hasRef = true; return false; } });
+    if (!hasRef) return null;
+    const ov = ctx && ctx.live ? overrides() : null;
+    const r = M.expandRefs(model, resolveDoc, {
+      rootId: ctx && ctx.live && S.doc ? S.doc.id : undefined,
+      shouldExpand: (n, key) => S.docs.some((d) => d.id === n.ref) && (ov && ov.has(key) ? ov.get(key) : !!n.expand),
+    });
+    return ctx && ctx.live ? r.model : r.included.length ? r.model : null;
+  }
+  /** Önizlemedeki +/− : referansın içini bu oturum için açar ya da kapatır */
+  function toggleExpand(key) {
+    if (!key) return;
+    let open = false;
+    M.walk((S.renderModel || S.model).items, (it) => { if (it.kind === 'note' && it.refKey === key && it.refHeader) open = true; });
+    overrides().set(key, !open);
+    Seq.preview.scheduleRender(0);
+  }
+  /** Varsayılan değişince bu diyagramdaki oturum seçimleri sıfırlanır */
+  function resetExpand() { overrides().clear(); }
 
   // ---------------------------------------------------------------------------
   // Diyagramlar arası bağlantı (ref)
@@ -83,6 +118,28 @@
       const tip = document.createElementNS(NS, 'title');
       tip.textContent = target ? T('ref.tip', { name: target.name }) : T('ref.broken');
       g.append(tip);
+      // İçini aç/kapat düğmesi: notun sağ üst köşesinde (açık referansın başlık notunda "−")
+      if (!target || !n.refKey) return;
+      const b = rect.getBBox();
+      const open = !!n.refHeader;
+      const btn = document.createElementNS(NS, 'g');
+      btn.setAttribute('class', 'ref-toggle' + (open ? ' open' : ''));
+      btn.setAttribute('data-key', n.refKey);
+      btn.setAttribute('transform', `translate(${b.x + b.width},${b.y})`);
+      const circle = document.createElementNS(NS, 'circle');
+      circle.setAttribute('r', 9);
+      circle.style.fill = bg;
+      circle.style.stroke = c;
+      circle.style.strokeWidth = '1.5px';
+      const sign = document.createElementNS(NS, 'path');
+      sign.setAttribute('d', open ? 'M-4 0H4' : 'M-4 0H4M0 -4V4');
+      sign.style.stroke = c;
+      sign.style.strokeWidth = '1.8px';
+      sign.style.strokeLinecap = 'round';
+      const t2 = document.createElementNS(NS, 'title');
+      t2.textContent = T(open ? 'ref.collapse' : 'ref.expand');
+      btn.append(circle, sign, t2);
+      g.append(btn);
     });
   }
 
@@ -135,6 +192,8 @@
 
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
   function init() {
+    // Açma, yer tutucu notlardan önce (açılan akış da yer tutuculardan geçsin), işaretlerden önce çalışır
+    Seq.preview.addTransform('ref-expand', refExpand, 5);
     Seq.preview.addTransform('ref-markers', refMarkers, 20);
     Seq.preview.addDecorator('refs', (svg, c) => decorateRefs(svg, c.renderModel), 40);
     // Bağlantıyla gelinmediyse geri dönüş yığını sıfırlanır
@@ -145,5 +204,5 @@
     $('#navBack').addEventListener('click', navBack);
   }
 
-  Seq.refs = { init, countDocRefs, decorateRefs, expandedDoc, followRef, nav, propagateRefRename, refReport, updateNavBack };
+  Seq.refs = { init, countDocRefs, decorateRefs, expandedDoc, followRef, nav, propagateRefRename, refReport, resetExpand, toggleExpand, updateNavBack };
 })(window.Seq = window.Seq || {});

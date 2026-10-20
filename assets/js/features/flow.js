@@ -351,6 +351,16 @@
           Seq.editor.commit(); Seq.editor.flushHistory();
         } }, ico('plus'), T('ref.span')),
       sel,
+      // Varsayılan: önizlemede içi açık mı (oturumdaki +/− seçimleri sıfırlanır)
+      h('button', {
+        class: 'icon-btn ref-expand' + (it.expand ? ' on' : ''), 'aria-pressed': String(!!it.expand), disabled: !target || null,
+        title: T(it.expand ? 'ref.defaultOpen' : 'ref.defaultClosed'),
+        onclick: () => {
+          if (it.expand) delete it.expand; else it.expand = true;
+          Seq.refs.resetExpand();
+          Seq.editor.commit(); Seq.editor.flushHistory();
+        },
+      }, ico('layers')),
       textInput(it.text, T('ph.refLabel'), (v) => { it.text = v; }),
       h('button', { class: 'icon-btn ref-open', title: T('ref.open'), disabled: !target || null, onclick: () => Seq.refs.followRef(it.ref) }, ico('external')),
       actionsEl(it),

@@ -1,6 +1,6 @@
 // Diyagramlar arası bağlantı (ref) ve paylaşım linki.
 import zlib from 'node:zlib';
-import { test, expect, seed, openApp, getCode, setView, openDocFromDrawer, doc, seq } from './helpers.mjs';
+import { test, expect, seed, openApp, getCode, setView, openDocFromDrawer, openExport, download, doc, seq } from './helpers.mjs';
 
 const refDocs = () => [
   doc('dPay', 'Ödeme akışı', seq('participant G as Gateway\nparticipant P as Payment\nG->>P: charge\nP-->>G: ok\n'), { updated: Date.now() - 1000 }),
@@ -125,3 +125,56 @@ test.describe('paylaşım linki', () => {
   });
 });
 
+
+test.describe('referansın içini açma', () => {
+  const docs = () => [
+    doc('co', 'Checkout', seq('actor U as Kullanıcı\nparticipant G as Gateway\nparticipant O as Order\nU->>G: checkout\nG->>O: create\n%% @ref pay\nNote over O: Ödeme akışı\nO-->>G: 201\n')),
+    doc('pay', 'Ödeme akışı', seq('participant O as Order\nparticipant P as Payment\nO->>P: charge\nP-->>O: paid\n'), { updated: Date.now() - 1000 }),
+  ];
+  const msgs = (page) => page.locator('#canvas text.messageText').allTextContents();
+
+  test('önizlemede +/− ile yerinde açılır ve kapanır; tıklamalar doğru adıma ya da bağlı diyagrama gider', async ({ context }) => {
+    await seed(context, { docs: docs(), current: 'co' });
+    const page = await openApp(context);
+    await expect.poll(() => msgs(page)).toEqual(['checkout', 'create', '201']);
+    await page.locator('#canvas .ref-toggle').click();
+    await expect.poll(() => msgs(page)).toEqual(['checkout', 'create', 'charge', 'paid', '201']);
+    await expect(page.locator('#canvas .ref-toggle.open')).toHaveCount(1);
+    expect(await getCode(page)).not.toContain('expand'); // oturum seçimi koda yazılmaz
+
+    // Ana akıştaki mesaj, açılan mesajlara rağmen doğru adımı seçer
+    await page.locator('#canvas text.messageText', { hasText: '201' }).click();
+    await expect(page.locator('#flow .step.selected .text-input')).toHaveValue('201');
+    // Açılan akıştaki mesaj, o diyagrama götürür
+    await page.locator('#canvas text.messageText', { hasText: 'charge' }).click();
+    await expect(page.locator('#docName')).toHaveValue('Ödeme akışı');
+    await page.click('#navBack');
+    await expect(page.locator('#docName')).toHaveValue('Checkout');
+
+    await page.locator('#canvas .ref-toggle').click();
+    await page.locator('#canvas .ref-toggle').click();
+    await expect.poll(() => msgs(page)).toEqual(['checkout', 'create', 'charge', 'paid', '201']);
+    await page.locator('#canvas .ref-toggle.open').click();
+    await expect.poll(() => msgs(page)).toEqual(['checkout', 'create', '201']);
+  });
+
+  test('varsayılan "açık" adımdan ayarlanır, koda yazılır, yeniden açılışta korunur; dışa aktarılan görselde düğme yok', async ({ context }) => {
+    await seed(context, { docs: docs(), current: 'co' });
+    const page = await openApp(context);
+    await page.locator('#flow .step-ref .ref-expand').click();
+    await expect.poll(() => getCode(page)).toMatch(/%% @ref pay expand\n\s*Note over O: Ödeme akışı/);
+    await expect.poll(() => msgs(page)).toEqual(['checkout', 'create', 'charge', 'paid', '201']);
+    await expect(page.locator('#flow .step-ref .ref-expand')).toHaveClass(/on/);
+    await page.reload();
+    await expect.poll(() => msgs(page)).toEqual(['checkout', 'create', 'charge', 'paid', '201']);
+    // Geri bağlantı "expand" sonekine rağmen sayılır
+    await openDocFromDrawer(page, 'Ödeme akışı');
+    await expect(page.locator('#btnBacklinks')).toHaveText('1');
+    await openDocFromDrawer(page, 'Checkout');
+
+    await openExport(page, 'SVG');
+    const svg = (await download(page, () => page.locator('.export-actions .btn.primary').click())).text();
+    expect(svg).toContain('charge'); // önizlemede görünen açık hâl
+    expect(svg).not.toContain('ref-toggle');
+  });
+});
