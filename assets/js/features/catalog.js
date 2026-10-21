@@ -272,7 +272,7 @@
     return [...out.values()].map((x) => { ['desc', 'kind', 'role'].forEach((k) => { if (!x[k]) delete x[k]; }); return x; });
   }
   function adoptItems(defs) {
-    if (!defs.length) return;
+    if (!defs.length || !Seq.workspace.editable()) return;
     S.catalog = S.catalog.concat(defs.filter((x) => !itemById(x.id)));
     fillKinds();
     saveCatalog();
@@ -499,6 +499,7 @@
   }
   /** Katalog dosyasını içe alır (aynı kimlikli öğeler güncellenir). Döner: içe alınan öğe sayısı */
   async function importFile(file) {
+    if (!Seq.workspace.editable()) return 0;
     const data = JSON.parse(await file.text());
     const arr = Array.isArray(data) ? data : data.catalog || [];
     if (!Array.isArray(data) && Array.isArray(data.roles)) Seq.roles.adoptRoles(data.roles.filter((r) => r && r.id && !Seq.roles.roleById(r.id)));

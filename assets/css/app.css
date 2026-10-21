@@ -1363,3 +1363,9 @@ body.readonly .cp-form, body.readonly .set-main.locked .set-section { opacity: .
   .doc-crumbs .crumb:not(:nth-last-child(2)), .doc-crumbs .crumb-sep:not(:last-child) { display: none; }
   .doc-crumbs .crumb { max-width: 120px; }
 }
+
+/* ---- Dışarıdan gelen değişiklikler: çakışma çubuğu ve yenileme çağrısı ---- */
+.notice.warn { border-color: color-mix(in srgb, var(--warn, #e8910c) 50%, var(--border)); background: color-mix(in srgb, var(--warn, #e8910c) 10%, var(--panel)); }
+.notice.warn > .ic { color: var(--warn, #e8910c); }
+.stale-banner { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 70; margin: 0; max-width: min(640px, calc(100vw - 32px)); box-shadow: var(--shadow-lg); }
+.restore-opt.disabled { opacity: .55; cursor: not-allowed; }

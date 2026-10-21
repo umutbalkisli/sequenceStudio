@@ -84,7 +84,7 @@ test('yedek alınır; birleştir ve değiştir doğru çalışır, geçersiz dos
   await page.setInputFiles(box + ' input[type=file]', tmpFile('b.json', JSON.stringify(changed)));
   await page.locator('.restore-opt', { hasText: 'Birleştir' }).click();
   await expect(page.locator('.toast').last()).toContainText('1 diyagram eklendi, 1 kopya oluşturuldu');
-  expect((await idbDump(page)).docs.map((d) => d.name).sort()).toEqual(['Kart', 'Kart (yedek)', 'Kayıt', 'Yedekteki yeni', 'İptal']);
+  await expect.poll(async () => (await idbDump(page)).docs.map((d) => d.name).sort()).toEqual(['Kart', 'Kart (yedek)', 'Kayıt', 'Yedekteki yeni', 'İptal']);
   await expect.poll(async () => (await idbDump(page)).kv.catalog.map((x) => x.id)).toEqual(['pay', 'ledger', 'orders']);
 
   // Değiştir

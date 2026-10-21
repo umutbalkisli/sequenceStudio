@@ -109,8 +109,9 @@
     const tree = h('div', { class: 'fp-tree' });
     const walk = (parentId, depth) => Seq.folders.childFolders(parentId).forEach((f) => {
       const kids = Seq.folders.childFolders(f.id).length;
-      const caret = kids ? h('span', { class: 'cp-caret' + (f.collapsed ? '' : ' open') }, ico('chevron')) : h('span', { class: 'cp-caret' });
-      if (kids) caret.addEventListener('click', (e) => { e.stopPropagation(); f.collapsed = !f.collapsed; Seq.docs.persistDocs(); renderSide(); });
+      const closed = Seq.folders.isCollapsed(f.id);
+      const caret = kids ? h('span', { class: 'cp-caret' + (closed ? '' : ' open') }, ico('chevron')) : h('span', { class: 'cp-caret' });
+      if (kids) caret.addEventListener('click', (e) => { e.stopPropagation(); Seq.folders.setCollapsed(f.id, !closed); renderSide(); });
       let row;
       if (state.renaming === f.id) {
         const inp = h('input', { class: 'input sm fp-rename', value: f.name });
@@ -134,7 +135,7 @@
         row.addEventListener('dragend', () => { dragging = false; });
       }
       tree.append(row);
-      if (!f.collapsed) walk(f.id, depth + 1);
+      if (!closed) walk(f.id, depth + 1);
     });
     walk(null, 1);
     side.append(tree);

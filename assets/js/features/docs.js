@@ -38,6 +38,7 @@
     if (S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); }
     store.set(RESCUE_KEY, S.doc);
     persistDocs();
+    Seq.repo.flush(); // bekletilen yazmalar sayfa kapanmadan başlasın
     events.emit('doc:leaving', { doc: S.doc });
   }
   function applyRescue() {
@@ -142,5 +143,5 @@
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') writeRescue(); });
   }
 
-  Seq.docs = { init, applyRescue, createDoc, deleteDoc, doSave, newDocId, openDoc, persistDocs, scheduleSave, storageError, uniqueDocName };
+  Seq.docs = { init, editPending: () => editPending, applyRescue, createDoc, deleteDoc, doSave, newDocId, openDoc, persistDocs, scheduleSave, storageError, uniqueDocName };
 })(window.Seq = window.Seq || {});

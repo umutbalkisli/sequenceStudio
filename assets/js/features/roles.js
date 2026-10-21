@@ -126,7 +126,7 @@
   }
   /** Rol tanımlarını kütüphaneye ekler */
   function adoptRoles(defs) {
-    if (!defs.length) return;
+    if (!defs.length || !Seq.workspace.editable()) return;
     S.roles = (S.roles || []).concat(defs.filter((d) => !roleById(d.id)));
     saveRoles();
     Seq.palette.renderPalette();

@@ -16,6 +16,11 @@
  * görünümü ayarları) kv deposundaki "workspaces" listesindedir. Yerel sürümde tek ve sabit bir çalışma alanı vardır
  * ("local"). Kişisel ayarlar ve son açık diyagram küçük ve açılışta senkron gerektiğinden localStorage'da kalır.
  *
+ * Sekmeler arası bildirim: başarılı her yazmadan sonra diğer sekmelere hangi kayıtların değiştiği duyurulur
+ * (BroadcastChannel). Alan sekme kayıtları veritabanından okur, kendi "son yazılan hâl"ini günceller (eski hâlin
+ * üstüne yazmasın) ve onRemote dinleyicilerine iletir. Bulut bağdaştırıcısında aynı yol sunucudan gelen
+ * değişiklikleri taşır.
+ *
  * Yükseltmeler tek bir sürüm geçişi işleminde yapılır (yarım kalırsa hiçbiri uygulanmaz):
  *   2: sürüm geçmişi ("versions"), 3: çalışma alanı, 4: öğe bazlı kayıtlar ("docs" deposu ve kv listeleri taşınır).
  * İlk açılışta eski localStorage verisi IndexedDB'ye taşınır, geri okunarak doğrulanır; eski veri silinmez,
@@ -67,9 +72,17 @@
         }
         if (db.objectStoreNames.contains('docs')) upgradeToEntities(db, r.transaction);
       };
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => rej(r.error);
-      r.onblocked = () => rej(new Error('IndexedDB blocked'));
+      let blockedTimer = null;
+      r.onsuccess = () => {
+        clearTimeout(blockedTimer);
+        const d = r.result;
+        // Başka sekme daha yeni bir sürüme yükseltmek istiyor: bağlantıyı bırak (yükseltme beklemesin), kullanıcıya bildir
+        d.onversionchange = () => { d.close(); db = null; staleFns.forEach((fn) => fn()); };
+        res(d);
+      };
+      r.onerror = () => { clearTimeout(blockedTimer); rej(r.error); };
+      // Eski sürümün açık bir sekmesi yükseltmeyi bekletiyor: o sekme bağlantıyı bırakınca devam edilir; çok uzarsa vazgeçilir
+      r.onblocked = () => { blockedTimer = setTimeout(() => rej(new Error('IndexedDB blocked')), 15000); };
     });
   }
 
@@ -162,7 +175,7 @@
       migrated: !!migrated, workspaces: Array.isArray(workspaces) ? workspaces : [],
     };
   }
-  const defaultWorkspace = () => ({ id: LOCAL_WS, kind: 'local', name: '', role: 'owner', createdAt: Date.now() });
+  const defaultWorkspace = () => ({ id: LOCAL_WS, kind: 'local', name: '', role: 'owner', createdAt: Date.now(), meta: { rev: 1, updatedAt: Date.now(), updatedBy: actor } });
 
   /** Eski localStorage verisini IndexedDB'ye taşır; geri okuyarak doğrular. */
   async function migrateFromLocal() {
@@ -255,6 +268,7 @@
         if (flagRoles) rolesInit = false;
         throw e;
       }
+      announce({ ws, type, ids: puts.map((p) => p.id) });
     }, true);
   }
 
@@ -269,7 +283,10 @@
     tx.objectStore('kv').put(list, 'workspaces');
     return done(tx);
   }
-  /** Çalışma alanı kaydını (ad, görünüm ayarları) günceller */
+  /**
+   * Çalışma alanı kaydını (ad, görünüm ayarları) günceller. Kayıt da üstveri taşır (rev, updatedAt, updatedBy);
+   * revizyon depodaki hâlden artırılır. Döner: yazılan kayıt.
+   */
   function saveWorkspace(ws) {
     const copy = JSON.parse(JSON.stringify(ws));
     if (mode !== 'idb') return lsSave(LS_WS, copy);
@@ -278,14 +295,47 @@
       const kv = tx.objectStore('kv');
       const list = (await req(kv.get('workspaces'))) || [];
       const i = list.findIndex((w) => w.id === copy.id);
+      const prevRev = i >= 0 && list[i].meta ? list[i].meta.rev || 0 : 0;
+      copy.meta = { rev: prevRev + 1, updatedAt: Date.now(), updatedBy: actor };
       if (i >= 0) list[i] = copy; else list.push(copy);
       kv.put(list, 'workspaces');
       await done(tx);
-    });
+      announce({ ws: copy.id, type: 'workspace' });
+      return copy;
+    }, true);
   }
 
+  // ---- Sekmeler arası bildirim ----
+  const remoteFns = [];
+  const staleFns = [];
+  let channel = null;
+  try { if (window.BroadcastChannel) channel = new BroadcastChannel('sequence-studio'); } catch (e) { /* desteklenmiyor */ }
+  function announce(msg) { if (channel) { try { channel.postMessage(msg); } catch (e) { /* yok */ } } }
+  /** Başka sekmenin yazdığı kayıtları okur, son yazılan hâli günceller ve dinleyicilere iletir */
+  async function receive(msg) {
+    if (!db || mode !== 'idb' || !msg || msg.ws !== currentWs) return;
+    if (msg.type === 'workspace') {
+      const list = await req(db.transaction('kv').objectStore('kv').get('workspaces'));
+      const w = (list || []).find((x) => x.id === currentWs);
+      if (w) remoteFns.forEach((fn) => fn('workspace', [w]));
+      return;
+    }
+    if (!TYPES[msg.type] || !Array.isArray(msg.ids) || !msg.ids.length) return;
+    const st = db.transaction('entities').objectStore('entities');
+    const recs = (await Promise.all(msg.ids.map((id) => req(st.get(ekey(currentWs, msg.type, id)))))).filter(Boolean);
+    const states2 = states[msg.type];
+    recs.forEach((r) => {
+      // Bu sekmenin son yazdığı hâl de iletilir: buradaki yazılmamış değişiklik onunla karşılaştırılarak anlaşılır
+      const old = states2.get(r.id);
+      r.prevJson = old ? old.json : null;
+      states2.set(r.id, { json: r.data == null ? null : JSON.stringify(r.data), pos: r.pos || 0, meta: r.meta });
+    });
+    if (recs.length) remoteFns.forEach((fn) => fn(msg.type, recs));
+  }
+  if (channel) channel.onmessage = (e) => { chain = chain.then(() => receive(e.data)).catch((err) => console.warn('[storage] sync', err)); };
+
   // ---- Sürüm geçmişi ----
-  // Kayıt: { vid, docId, ts, code, name, kind: 'auto' | 'manual' | 'restore', label?, by? }
+  // Kayıt: { vid, ws, docId, ts, code, name, kind: 'auto' | 'manual' | 'restore', label?, by? }
   // IndexedDB yoksa localStorage'da diyagram başına az sayıda sürüm tutulur.
   const LS_VERSIONS = 'seqstudio.versions';
   const LOCAL_VERSION_CAP = 10;
@@ -309,7 +359,7 @@
     return enqueue(async () => {
       const tx = db.transaction('versions', 'readwrite');
       const st = tx.objectStore('versions');
-      st.put(v);
+      st.put(Object.assign({ ws: currentWs }, v));
       const list = sortVersions(await req(st.index('docId').getAll(v.docId)) || []);
       let autos = 0;
       list.forEach((x) => { if (x.kind === 'auto' && ++autos > keepAuto) st.delete(x.vid); });
@@ -388,6 +438,19 @@
     /** Yazan kullanıcı (createdBy/updatedBy) */
     setActor(id) { actor = id || ''; },
     onStatus(fn) { listeners.push(fn); },
+    /**
+     * Başka sekmeden (bulutta: sunucudan) gelen kayıtlar: fn(type, records). Kayıtta prevJson, bu sekmenin o öğe
+     * için son yazdığı hâldir. type 'workspace' ise kayıt çalışma alanıdır.
+     */
+    onRemote(fn) { remoteFns.push(fn); },
+    /** Veritabanı başka sekmede yükseltildi; bu sekme artık yazamaz, yenilenmeli */
+    onStale(fn) { staleFns.push(fn); },
+    /** Yazma durumu: 'saving' | 'saved' | 'error' */
+    status: () => (pending ? 'saving' : failed ? 'error' : 'saved'),
+    /** Depoda silinmemiş öğe kimlikleri */
+    liveIds(type) { return states[type] ? [...states[type]].filter(([, v]) => !v.meta.deleted).map(([id]) => id) : []; },
+    /** Öğenin depodaki sırası (bilinmiyorsa Infinity) */
+    pos(type, id) { const s = states[type] && states[type].get(id); return s ? s.pos : Infinity; },
     listVersions, addVersion, deleteVersion, deleteVersionsOf,
     get mode() { return mode; },
   };

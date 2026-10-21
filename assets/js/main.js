@@ -77,7 +77,7 @@
    * Modüller yüklenirken birbirine dokunmaz; tüm bağlantılar burada, her şey yüklendikten sonra kurulur.
    */
   const INIT_ORDER = ['core', 'router', 'workspace', 'theme', 'breadcrumb', 'preview', 'colors', 'legend', 'code', 'layout', 'roles', 'catalog', 'defsNotice', 'participants', 'flow', 'share',
-    'editor', 'help', 'export', 'versions', 'search', 'docs', 'refs', 'reconcile', 'lint', 'backlinks', 'arch', 'present', 'flowsPage', 'catalogPage', 'settingsPage', 'backup', 'palette', 'shortcuts'];
+    'editor', 'help', 'export', 'versions', 'search', 'docs', 'refs', 'reconcile', 'sync', 'lint', 'backlinks', 'arch', 'present', 'flowsPage', 'catalogPage', 'settingsPage', 'backup', 'palette', 'shortcuts'];
 
   function start() {
     INIT_ORDER.forEach((m) => Seq[m].init());

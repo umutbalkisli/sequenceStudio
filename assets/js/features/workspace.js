@@ -8,7 +8,9 @@
  * Kişisel ayarlar (dil, uygulama teması, yerleşim) çalışma alanından bağımsızdır ve S.settings'te kalır.
  *
  * Yetki: çalışma alanı kaydındaki rol (owner | editor | viewer) izinleri belirler. Yerelde kullanıcı sahiptir;
- * bulutta rol üyelikten gelir. Düzenleme izni yoksa uygulama salt okunur çalışır (body.readonly): düzenleme
+ * bulutta rol üyelikten gelir. Rol bilinmiyorsa en dar yetki (viewer) geçerlidir; yalnızca rolü hiç yazılmamış
+ * yerel çalışma alanı sahip sayılır. İzinler: 'edit' (içerik), 'admin' (çalışma alanı adı, görünümü, tümünü
+ * değiştirerek geri yükleme). Düzenleme izni yoksa uygulama salt okunur çalışır (body.readonly): düzenleme
  * arayüzü kilitlenir, değişiklik yapan işlemler editable() ile reddedilir ve depo yazmaz.
  */
 (function (Seq) {
@@ -26,19 +28,33 @@
 
   // --- Yetkiler ---
   const PERMS = { owner: ['edit', 'admin'], editor: ['edit'], viewer: [] };
-  const role = () => (PERMS[ws().role] ? ws().role : 'owner');
+  function role() {
+    const r = ws().role;
+    if (PERMS[r]) return r;
+    return r == null && isLocal() ? 'owner' : 'viewer';
+  }
   /** İzin: 'edit' (içerik değiştirme) | 'admin' (çalışma alanı ayarları) */
   const can = (perm) => PERMS[role()].includes(perm);
   let deniedAt = 0;
   /** Değişiklik yapan işlemlerin başında çağrılır; izin yoksa (art arda tek) uyarı gösterip false döner */
-  function editable() {
-    if (can('edit')) return true;
-    if (Date.now() - deniedAt > 3000) { deniedAt = Date.now(); toast(T('ws.readonlyDenied'), 'err'); }
+  function editable(perm = 'edit') {
+    if (can(perm)) return true;
+    if (Date.now() - deniedAt > 3000) { deniedAt = Date.now(); toast(T(perm === 'admin' ? 'ws.adminDenied' : 'ws.readonlyDenied'), 'err'); }
     return false;
   }
   function applyPermissions() {
     document.body.classList.toggle('readonly', !can('edit'));
+    document.body.classList.toggle('no-admin', !can('admin'));
     ['#code', '#docName', '#diagramTitle'].forEach((sel) => { const n = $(sel); if (n) n.readOnly = !can('edit'); });
+    // Diyagram görünümü çalışma alanının ortak ayarıdır: yalnızca yönetici değiştirir
+    ['#mmTheme', '#optLegend', '#optMirror'].forEach((sel) => {
+      const n = $(sel);
+      if (!n) return;
+      const box = n.closest('label') || n;
+      if (!('title0' in box.dataset)) box.dataset.title0 = box.title || '';
+      n.disabled = !can('admin');
+      box.title = can('admin') ? box.dataset.title0 : T('ws.adminOnly');
+    });
   }
 
   /** Çalışma alanı ayarı (yoksa varsayılan) */
@@ -47,13 +63,14 @@
     return key in st ? st[key] : APPEARANCE[key];
   }
   function set(key, value) {
+    if (!editable('admin')) return;
     ws().settings = Object.assign({}, ws().settings, { [key]: value });
     save();
     events.emit('workspace:changed', { key });
   }
   function rename(value) {
     const v = String(value || '').trim();
-    if (v === (ws().name || '')) return;
+    if (v === (ws().name || '') || !editable('admin')) return;
     ws().name = v;
     save();
     updateBadge();
@@ -77,6 +94,15 @@
     }
     applyPermissions();
     updateBadge();
+  }
+  /** Başka sekmede (bulutta: başka üyede) değişen çalışma alanı kaydını uygular */
+  function applyRemote(w) {
+    const prev = S.workspace;
+    S.workspace = Object.assign({ kind: 'local', name: '', settings: {} }, w);
+    applyPermissions();
+    updateBadge();
+    if (prev.name !== S.workspace.name) events.emit('workspace:changed', { key: 'name' });
+    if (JSON.stringify(prev.settings) !== JSON.stringify(S.workspace.settings)) events.emit('workspace:changed', { key: 'settings' });
   }
 
   /** Özet sayılar (rozet ve ayarlar sayfası için) */
@@ -113,5 +139,5 @@
     events.on('lang:changed', updateBadge);
   }
 
-  Seq.workspace = { init, APPEARANCE, can, editable, get, isLocal, load, name, rename, role, set, stats };
+  Seq.workspace = { init, APPEARANCE, applyRemote, can, editable, get, isLocal, load, name, rename, role, set, stats };
 })(window.Seq = window.Seq || {});

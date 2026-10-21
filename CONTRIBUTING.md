@@ -35,6 +35,8 @@ The e2e tests fail on any uncaught page error. To debug one test: `npx playwrigh
   adapter will replace the local one behind the repository.
 - **Changing content?** Start the function with `if (!Seq.workspace.editable()) return …` so read-only
   workspaces stay read-only, and mark creation buttons with the `edit-only` class.
+- **Personal view state** (expanded/collapsed, selection, layout) goes to `S.settings`, never into a shared
+  record; every change to a shared record is a revision that other people receive.
 - **Don't rewrite other flows** when a definition changes; record the old state and let
   `features/reconcile.js` adapt flows when they are read (see *Lazy propagation*).
 - **Strings** go to both languages in `core/i18n.js`.

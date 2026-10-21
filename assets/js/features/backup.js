@@ -85,6 +85,7 @@
     }
   }
   function afterRestore(preferId) {
+    Seq.folders.normalize();
     Seq.docs.persistDocs();
     Seq.roles.saveRoles();
     Seq.catalog.saveCatalog();
@@ -113,7 +114,9 @@
             afterRestore();
             toast(T('backup.merged', { a: r.added, c: r.copies, s: r.same }));
           }),
-          choice('swap', T('backup.replace'), T('backup.replaceDesc', { n: S.docs.length }), 'danger', () => {
+          // Tümünü değiştirmek herkesin içeriğini siler: yalnızca çalışma alanı sahibi
+          choice('swap', T('backup.replace'), Seq.workspace.can('admin') ? T('backup.replaceDesc', { n: S.docs.length }) : T('backup.replaceAdmin'), 'danger' + (Seq.workspace.can('admin') ? '' : ' disabled'), () => {
+            if (!Seq.workspace.editable('admin')) return;
             if (!confirm(T('backup.confirmReplace', { n: S.docs.length }))) return;
             replaceWithBackup(bk);
             closeModal();

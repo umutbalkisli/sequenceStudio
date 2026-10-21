@@ -122,6 +122,8 @@ The document lifecycle is published as events, so `docs.js` doesn't need to know
 | `catalog:changed` | none              | the catalog was edited                        | arch, reconcile |
 | `roles:changed`  | none               | the roles were edited                         | reconcile |
 | `repo:status`    | `{ state, error? }`| a write started (`saving`), finished (`saved`) or failed (`error`) | docs (save indicator) |
+| `repo:remote`    | `{ type, records }`| another tab (in the cloud: another member) changed records | sync |
+| `repo:stale`     | none               | the database was upgraded in another tab; this tab must reload | sync |
 | `user:changed`   | none               | the user's display name changed               | — |
 | `theme:changed`  | none               | Mermaid was re-initialized for a new theme    | arch |
 | `app:ready`      | none               | boot finished (data loaded, first doc open)   | arch |
@@ -290,10 +292,17 @@ to it. They stay in `S.settings` (localStorage) and are per user and per device.
   settings and emits `workspace:changed`. On first start it moves the look settings that earlier versions
   kept in personal settings.
 - **Permissions:** the workspace record's `role` (`owner` | `editor` | `viewer`) decides what the user may
-  do: `Seq.workspace.can('edit' | 'admin')`. Locally the user is the owner; in the cloud the role comes from
-  the membership. Without `edit` the app runs **read-only**: `body.readonly` hides or locks the editing UI
-  (`.edit-only`, palette, builder, code editor, catalog form, locked settings sections), mutating functions
-  start with `Seq.workspace.editable()` (which refuses with a toast), and `Seq.repo` doesn't write.
+  do: `Seq.workspace.can('edit' | 'admin')`. `edit` covers content; `admin` covers the workspace record
+  (name, diagram look) and *Replace all* from a backup. Locally the user is the owner; in the cloud the role
+  comes from the membership. An unknown role falls back to `viewer` (fail closed); only a local workspace
+  with no role at all counts as owner. Without `edit` the app runs **read-only**: `body.readonly` hides or
+  locks the editing UI (`.edit-only`, palette, builder, code editor, catalog form, locked settings sections),
+  mutating functions start with `Seq.workspace.editable()` (which refuses with a toast), and `Seq.repo`
+  doesn't write. Without `admin` the look controls in the preview header are disabled.
+- **Workspace record metadata:** saving the record bumps `meta.rev` (read from the stored record) and sets
+  `updatedAt`/`updatedBy`.
+- **Personal view state stays personal:** whether a folder is expanded lives in `S.settings.foldersCollapsed`,
+  not in the shared folder record (older records are migrated on start).
 - **Backups:** a backup carries the workspace (`name`, `settings`). Restoring binds the flows to the active
   workspace, and *Replace all* also restores the name and look.
 
@@ -312,10 +321,33 @@ The repository forwards to an **adapter**. The local edition's adapter is `core/
 adds a server adapter with the same contract (documented at the top of `core/repo.js`) and the features stay
 unchanged. The repository also:
 
-- refuses writes when the workspace is read-only;
-- stamps version records with the author (`by`);
+- refuses writes the user isn't allowed to make (`edit` for content, `admin` for the workspace record);
+- **coalesces writes:** saves to the same collection within 400 ms become one write (so typing a name is one
+  revision, not one per key); pending writes are started right away when the page is hidden or closed, and
+  `flush()` waits for them;
+- stamps version records with the author (`by`); the adapter adds the workspace (`ws`);
 - publishes the write state as `repo:status` (`saving` → `saved`, or `error` until the next successful data
-  write). The flow bar's save indicator listens to it; a sync state would use the same path.
+  write). The flow bar's save indicator listens to it;
+- publishes changes made elsewhere as `repo:remote` and an outdated tab as `repo:stale` (see below).
+
+### Changes from elsewhere (`features/sync.js`)
+
+After every successful write the local adapter tells other tabs which records changed (`BroadcastChannel`).
+The receiving tab reads those records, updates its "last written" state (so its next write builds on them
+instead of overwriting them with an older revision) and emits `repo:remote`. A cloud adapter emits the same
+event for changes made by other members. `features/sync.js` applies the records item by item:
+
+- folders, roles and the catalog are updated in place, added or removed, and ordered by the stored position;
+  unsaved changes to other items in this tab are kept;
+- a flow that isn't open is updated in place; the open flow is reloaded if this tab has no unsaved changes,
+  otherwise a conflict bar asks: *Load the other tab's version* or *Keep mine* (which writes a new revision on
+  top). "Unsaved" means the editor is ahead of the flow, or the flow differs from what this tab last wrote
+  (`record.prevJson`);
+- the workspace record (name, look, role) is applied.
+
+When another tab opens a newer database version, this tab closes its connection so the upgrade isn't
+blocked, and shows a reload banner (`repo:stale`). A tab waiting for an upgrade waits up to 15 s before it
+falls back.
 
 ### Entity storage (IndexedDB v4)
 
@@ -332,7 +364,7 @@ meta = { rev, createdAt, createdBy, updatedAt, updatedBy, deleted? }
 leaves a **tombstone** (`deleted: true`, `data: null`), so another device can learn that it was deleted.
 `pos` keeps the order of folders, roles and the catalog; flows are unordered (`ordered: false`).
 The `kv` store keeps only small global values (`migrated`, `workspaces`, `ws:<id>:rolesInit`), and
-`versions` keeps the history.
+`versions` keeps the history (each version carries its `ws`).
 
 Upgrades run in one versionchange transaction, so either all of them apply or none: v2 adds `versions`,
 v3 binds data to the local workspace, v4 moves the `docs` store and the `kv` lists into `entities`

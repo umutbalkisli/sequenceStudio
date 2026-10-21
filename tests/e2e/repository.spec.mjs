@@ -45,7 +45,7 @@ test('kullanıcı kimliği: kayıtlar ve sürümler yazanı taşır; ad ayarlard
   ids.forEach((id) => expect(id).toMatch(/^ledger-[a-z0-9]{4}$/));
   expect(ids[0]).not.toBe(ids[1]);
   expect(ids).not.toContain('ledger');
-  await expect.poll(async () => (await entity(page, 'local|catalog|' + ids[0])).meta).toMatchObject({ rev: 1, createdBy: me, updatedBy: me });
+  await expect.poll(async () => (await entity(page, 'local|catalog|' + ids[0]))?.meta).toMatchObject({ rev: 1, createdBy: me, updatedBy: me });
 
   // Sürüm geçmişi: elle kaydedilen sürüm yazanı taşır ve adıyla gösterilir
   await page.locator('#mainNav [data-nav="flows"]').click();
