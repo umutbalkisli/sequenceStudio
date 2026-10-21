@@ -1401,11 +1401,12 @@ body.pal-left .pal-off-note { display: none !important; }
 }
 
 /* Daraltma düğmesi (yalnızca solda) ve simge şeridi */
-.pal-collapse { align-self: flex-end; width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 7px; background: none; color: var(--muted); padding: 0; margin: 0 -2px 2px 0; flex: none; }
-.pal-collapse:hover { background: var(--panel-3); color: var(--text); }
-.pal-collapse .ic { width: 16px; height: 16px; }
+.pal-head { display: none; }
+body.pal-left .pal-head { display: flex; justify-content: space-between; align-items: center; gap: 4px; margin: -2px -2px 8px; }
+body.pal-left .pal-head .pal-toggle { width: 26px; height: 26px; }
+body.pal-left .pal-head .pal-toggle .ic { width: 16px; height: 16px; }
 body.pal-left .palette.rail { padding: 8px 6px; }
-body.pal-left .palette.rail .pal-collapse { align-self: center; margin: 0 0 6px; }
+body.pal-left .palette.rail .pal-head { flex-direction: column; margin: 0 0 6px; }
 body.pal-left .palette.rail .pal-title > span:not(.pal-side), body.pal-left .palette.rail .pal-subtitle,
 body.pal-left .palette.rail .cat-count, body.pal-left .palette.rail .chip.cat-open > .ic:last-child { display: none !important; }
 body.pal-left .palette.rail .pal-title { justify-content: center; margin-bottom: 4px; }

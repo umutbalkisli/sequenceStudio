@@ -89,6 +89,9 @@
   const isLeft = () => S.settings.palPosition === 'left';
   function applyPalPosition() {
     document.body.classList.toggle('pal-left', isLeft());
+    // Konum düğmesi: solda paletin en üstünde (daraltmanın yanında), üstte "Akış" başlığının yanında
+    const pos = $('#btnPalPos');
+    if (isLeft()) $('#palHead').prepend(pos); else $('#btnPalToggle').before(pos);
     const rail = isLeft() && !!S.settings.palRail;
     paletteEl.classList.toggle('rail', rail);
     const b = $('#btnPalPos');
