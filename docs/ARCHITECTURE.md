@@ -49,7 +49,7 @@ Every screen has an address, though, so deep links and the browser's back and fo
 
 A screen registers itself with `Seq.router.register({ id, nav, pattern, params, mount, update, unmount })`.
 Adding a screen doesn't touch existing code. The router marks the active screen on `<body>` as
-`screen-<id>`. CSS hides editor-only parts (`.tb-doc-only`, palette, workspace) on the other screens, and
+`screen-<id>`. CSS hides editor-only parts (`.tb-doc-only`, `#editorBody` with the palette and workspace) on the other screens, and
 the shortcut table runs rows without `global: true` only in the editor.
 
 `Seq.router.go(path)` navigates and mounts **synchronously**, so "open this flow, then reveal that
@@ -61,6 +61,12 @@ Pages re-render when data changes (`docs:persisted`, `catalog:changed`), but the
 the data first. That way a page that has just redrawn itself after its own change doesn't redraw again
 under the user's pointer. The architecture view also keeps the SVG when the generated Mermaid code is
 unchanged.
+
+The palette sits above the editor (`top`) or in a vertical column on its left (`left`); this is a personal
+setting (`S.settings.palPosition`, *Settings › Personal* or the ⇄ button in the palette) that toggles
+`body.pal-left`. On the left it is only as wide as its content and can collapse to an icon rail
+(`S.settings.palRail`, names stay in tooltips). Panes are size containers: their headers hide switch labels
+and titles as they get narrow, so the page never scrolls sideways. Elements that only belong to one layout carry `.when-top` / `.when-left`.
 
 Small, in-context tasks stay where the work happens: the catalog picker in the palette, "Save to catalog"
 in the participant panel, the "Link" fix in the diagram check and the ⌘K search. The top bar is the same on every screen. The editor adds a flow bar below it

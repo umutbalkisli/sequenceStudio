@@ -132,6 +132,6 @@ test('IndexedDB yoksa localStorage ile çalışır ve kullanıcı uyarılır', a
   await expect(page.locator('#docName')).toHaveValue('LS diyagram');
   await expect(page.locator('.toast.err').filter({ hasText: 'IndexedDB kullanılamıyor' })).toBeVisible();
   await setCode(page, seq('A->>B: ls kaydi\n'));
-  expect(await page.evaluate(() => localStorage.getItem('seqstudio.docs'))).toContain('ls kaydi');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('seqstudio.docs'))).toContain('ls kaydi');
 });
 

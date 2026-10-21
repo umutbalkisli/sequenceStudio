@@ -212,7 +212,7 @@ button { cursor: pointer; }
 .save-state.error, .save-state.error .ic { color: var(--danger, #e5484d); }
 
 /* ---------- Workspace ---------- */
-.workspace { flex: 1; min-height: 0; display: flex; padding: 12px; gap: 0; }
+.workspace { flex: 1; min-height: 0; min-width: 0; display: flex; padding: 12px; gap: 0; }
 .palette:not([hidden]) + .workspace { padding-top: 10px; }
 .pane {
   min-width: 0; display: flex; flex-direction: column;
@@ -268,7 +268,7 @@ button { cursor: pointer; }
 .select.sm { height: 30px; font-size: 12.5px; }
 .select:focus, .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 
-.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); cursor: pointer; user-select: none; white-space: nowrap; }
+.switch { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); cursor: pointer; user-select: none; white-space: nowrap; }
 .switch input { position: absolute; opacity: 0; pointer-events: none; }
 .switch-ui { width: 30px; height: 18px; border-radius: 20px; background: var(--border-strong); position: relative; transition: background .2s; flex: none; }
 .switch-ui::after { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .2s var(--ease); }
@@ -1073,7 +1073,7 @@ kbd { box-shadow: 0 1px 0 var(--border-strong); }
 
 /* ---------- Ekranlar (yönlendirici body'ye "screen-<id>" yazar) ---------- */
 /* Düzenleyiciye özgü parçalar yalnızca düzenleyici ekranında görünür */
-body:not(.screen-editor) .palette, body:not(.screen-editor) .workspace, body:not(.screen-editor) .tb-doc-only { display: none !important; }
+body:not(.screen-editor) .editor-body, body:not(.screen-editor) .tb-doc-only { display: none !important; }
 .brand { color: inherit; text-decoration: none; }
 .main-nav { display: flex; align-items: center; gap: 2px; flex: none; }
 .main-nav a { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px; border-radius: 8px; color: var(--text-2); font-size: 13px; font-weight: 600; text-decoration: none; }
@@ -1369,3 +1369,63 @@ body.readonly .cp-form, body.readonly .set-main.locked .set-section { opacity: .
 .notice.warn > .ic { color: var(--warn, #e8910c); }
 .stale-banner { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 70; margin: 0; max-width: min(640px, calc(100vw - 32px)); box-shadow: var(--shadow-lg); }
 .restore-opt.disabled { opacity: .55; cursor: not-allowed; }
+
+/* ---------- Düzenleyici gövdesi ve palet konumu (üstte / solda) ---------- */
+.editor-body { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.when-left { display: none; }
+body.pal-left .when-left { display: revert; }
+body.pal-left .when-top { display: none !important; }
+body.pal-left .editor-body { flex-direction: row; }
+/* Solda: dikey sütun, her satırda bir öğe; sırasıyla katalog, roller, akış adımları */
+/* Genişlik içerik kadar (uzun rol adları sınırlanır); dikeyde taşarsa kendi içinde kayar */
+body.pal-left .palette {
+  flex-direction: column; gap: 0; width: max-content; max-width: 220px; flex: none; margin: 12px 0 12px 12px; padding: 8px 8px 12px;
+  overflow-x: hidden; overflow-y: auto;
+}
+body.pal-left .palette:not([hidden]) + .workspace { padding-top: 12px; padding-left: 10px; }
+body.pal-left .palette > .pal-group { flex: none !important; }
+body.pal-left .pal-group + .pal-group { padding: 12px 0 0; margin-top: 12px; border-left: 0; border-top: 1px solid var(--border); }
+body.pal-left .pal-items { flex-direction: column; flex-wrap: nowrap; gap: 2px; }
+body.pal-left .pal-items .chip { width: 100%; height: 30px; flex: none; border-color: transparent; background: none; justify-content: flex-start; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding-right: 10px; }
+body.pal-left .pal-items .chip:hover { background: var(--panel-2); border-color: var(--border); }
+body.pal-left .pal-items .chip.cat-open { border-color: var(--border); background: var(--panel-2); }
+body.pal-left .pal-items .chip.cat-open .cat-count { margin-left: auto; }
+body.pal-left .pal-sep { display: none; }
+body.pal-left .pal-subtitle { margin: 12px 0 4px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+body.pal-left .pal-items .chip.chip-edit { color: var(--muted); font-size: 12px; }
+body.pal-left .pal-title { margin-bottom: 6px; }
+body.pal-left .pal-off-note { display: none !important; }
+@media (max-width: 860px) {
+  body.pal-left .editor-body { flex-direction: column; }
+  body.pal-left .palette { width: auto; margin: 8px 8px 0; max-height: 40vh; }
+}
+
+/* Daraltma düğmesi (yalnızca solda) ve simge şeridi */
+.pal-collapse { align-self: flex-end; width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 7px; background: none; color: var(--muted); padding: 0; margin: 0 -2px 2px 0; flex: none; }
+.pal-collapse:hover { background: var(--panel-3); color: var(--text); }
+.pal-collapse .ic { width: 16px; height: 16px; }
+body.pal-left .palette.rail { padding: 8px 6px; }
+body.pal-left .palette.rail .pal-collapse { align-self: center; margin: 0 0 6px; }
+body.pal-left .palette.rail .pal-title > span:not(.pal-side), body.pal-left .palette.rail .pal-subtitle,
+body.pal-left .palette.rail .cat-count, body.pal-left .palette.rail .chip.cat-open > .ic:last-child { display: none !important; }
+body.pal-left .palette.rail .pal-title { justify-content: center; margin-bottom: 4px; }
+body.pal-left .palette.rail .pal-side { margin: 0; }
+body.pal-left .palette.rail .pal-items .chip { width: 34px; height: 32px; padding: 0; justify-content: center; font-size: 0; gap: 0; }
+body.pal-left .palette.rail .pal-items .chip .ic { width: 16px; height: 16px; }
+body.pal-left .palette.rail .chip-edit span { display: none; }
+body.pal-left .palette.rail .pal-roles .pal-items { padding-bottom: 6px; }
+
+/* Panel başlıkları panel genişliğine uyar (palet solda ya da editör geniş olsa da sayfa yatay taşmaz):
+   önce anahtar etiketleri (ipucunda kalır), sonra başlık metinleri gizlenir; kalan her şey panel içinde kırpılır */
+.pane { container-type: inline-size; }
+.pane-head { min-width: 0; overflow: hidden; }
+.pane-head-right { min-width: 0; }
+#mmTheme { max-width: 150px; min-width: 0; }
+@container (max-width: 620px) {
+  .pane-head-right .switch > span:last-child { display: none; }
+  .pane-head-right { gap: 8px; }
+}
+@container (max-width: 420px) {
+  .ph-title > span, .pane-head .seg button span { display: none; }
+  #mmTheme { max-width: 110px; }
+}

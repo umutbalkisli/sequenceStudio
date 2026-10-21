@@ -75,11 +75,15 @@
       Seq.theme.configureMermaid();
       Seq.preview.scheduleRender(0);
     });
+    const palPos = h('select', { class: 'select', id: 'setPalPos' }, ['top', 'left'].map((p) => h('option', { value: p }, T('set.palPos.' + p))));
+    palPos.value = S.settings.palPosition === 'left' ? 'left' : 'top';
+    palPos.addEventListener('change', () => Seq.palette.setPalPosition(palPos.value));
     return h('div', { class: 'set-section' },
       h('p', { class: 'roles-intro' }, T('set.personalIntro')),
       field(T('user.name'), me, T('user.nameHint')),
       field(T('set.language'), lang),
-      field(T('set.appTheme'), theme, T('set.themeHint')));
+      field(T('set.appTheme'), theme, T('set.themeHint')),
+      field(T('set.palPosition'), palPos, T('set.palPositionHint')));
   }
 
   let current = SECTIONS[0];

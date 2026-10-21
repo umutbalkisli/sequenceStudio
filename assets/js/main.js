@@ -19,6 +19,7 @@
     Seq.palette.renderPalette();
     Seq.layout.applyPin();
     Seq.palette.applyPalCompact();
+    Seq.palette.applyPalPosition();
     Seq.flow.renderBuilder();
     Seq.breadcrumb.render();
     Seq.preview.scheduleRender(0);

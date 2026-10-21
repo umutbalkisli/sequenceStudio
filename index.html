@@ -73,10 +73,13 @@
       </div>
     </div>
 
+    <!-- Düzenleyici gövdesi: palet üstte (satır) ya da solda (dikey sütun) — kişisel ayar "palPosition" -->
+    <div class="editor-body" id="editorBody">
     <!-- Sabit palet: katalog ve roller, akış adımları (görsel oluşturucu için) -->
     <div class="palette" id="palette">
+      <button class="pal-collapse when-left" id="btnPalCollapse"><i data-icon="panelClose"></i></button>
       <div class="pal-group pal-roles">
-        <div class="pal-title" data-i18n="pal.roles"></div>
+        <div class="pal-title"><span class="when-top" data-i18n="pal.roles"></span><span class="when-left" data-i18n="cat.title"></span></div>
         <div class="pal-items" id="palRoles"></div>
       </div>
       <div class="pal-group">
@@ -84,7 +87,8 @@
           <span data-i18n="pal.flow"></span>
           <span class="pal-side">
             <span class="pal-off-note" data-i18n="pal.codeOff"></span>
-            <button class="pal-toggle" id="btnPalToggle"><i data-icon="chevron"></i></button>
+            <button class="pal-toggle" id="btnPalPos"><i data-icon="swap"></i></button>
+            <button class="pal-toggle when-top" id="btnPalToggle"><i data-icon="chevron"></i></button>
           </span>
         </div>
         <div class="pal-items" id="palSteps"></div>
@@ -199,6 +203,7 @@
         </div>
       </section>
     </main>
+    </div>
 
     <!-- SAYFALAR: akış kütüphanesi, katalog, ayarlar (içerikleri modüllerince çizilir) -->
     <section class="page-screen" id="flowsScreen" hidden></section>

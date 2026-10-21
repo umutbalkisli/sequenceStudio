@@ -1,10 +1,12 @@
 /* Sequence Studio — palet
  *
- * Katalog/roller ve akış adımları paleti (katılımcı tipleri katılımcı panelinde seçilir); grup genişliklerini dengeleme ve kompakt mod.
+ * Katalog/roller ve akış adımları paleti (katılımcı tipleri katılımcı panelinde seçilir). Konum kişisel ayardır
+ * (S.settings.palPosition): 'top' — düzenleyicinin üstünde satır; 'left' — solda dikey sütun, her satırda bir öğe
+ * (sırasıyla katalog, roller, akış adımları); grup genişliklerini dengeleme ve kompakt mod.
  */
 (function (Seq) {
   'use strict';
-  const { $, $$, M, S, T, el, h, ico, saveSettings } = Seq.core;
+  const { $, $$, M, S, T, el, events, h, ico, saveSettings } = Seq.core;
 
   // ---------------------------------------------------------------------------
   // Palet
@@ -20,7 +22,8 @@
     catBtn.addEventListener('click', () => Seq.catalog.openPicker(catBtn, {
       draggable: true, onPick: (x) => Seq.participants.addParticipant(null, null, null, x.id),
     }));
-    el.palR.append(catBtn, h('span', { class: 'pal-sep' }));
+    // Solda dikey düzende roller kendi başlığıyla kataloğun altında listelenir
+    el.palR.append(catBtn, h('span', { class: 'pal-sep' }), h('div', { class: 'pal-subtitle when-left' }, T('pal.rolesOnly')));
     (S.roles || []).forEach((r) => {
       const chip = h('div', { class: 'chip role-chip', draggable: 'true', title: r.name + ' — ' + T('pal.clickOrDrag'), style: `--c:${r.color}` }, ico('t-' + r.type), r.name);
       chip.addEventListener('click', () => Seq.participants.addParticipant(r.type, null, r.id));
@@ -28,10 +31,11 @@
       chip.addEventListener('dragend', Seq.flow.endDrag);
       el.palR.append(chip);
     });
-    el.palR.append(h('button', { class: 'chip chip-edit', title: T('role.manage'), onclick: Seq.roles.openRoles }, ico('edit'), (S.roles || []).length ? null : T('role.manageShort')));
+    el.palR.append(h('button', { class: 'chip chip-edit', title: T('role.manage'), onclick: Seq.roles.openRoles }, ico('edit'),
+      (S.roles || []).length ? h('span', { class: 'when-left' }, T('role.manage')) : T('role.manageShort')));
     requestAnimationFrame(() => { if (typeof balancePalette === 'function') balancePalette(); });
     Seq.steps.list().forEach((s) => {
-      const chip = h('div', { class: 'chip', draggable: 'true', title: (M.BLOCK_TYPES[s.id] ? T('block.' + s.id) + ' — ' : '') + T('pal.clickOrDragFlow'), style: `--c:${s.color}` }, ico(s.icon), T('step.' + s.id));
+      const chip = h('div', { class: 'chip', draggable: 'true', title: T('step.' + s.id) + ' — ' + (M.BLOCK_TYPES[s.id] ? T('block.' + s.id) + ' — ' : '') + T('pal.clickOrDragFlow'), style: `--c:${s.color}` }, ico(s.icon), T('step.' + s.id));
       chip.addEventListener('click', () => Seq.flow.addStep(s.id));
       chip.addEventListener('dragstart', (e) => Seq.flow.startDrag(e, { kind: 'newStep', type: s.id }));
       chip.addEventListener('dragend', Seq.flow.endDrag);
@@ -59,6 +63,7 @@
     return lo;
   }
   function balancePalette() {
+    if (isLeft()) { $$(':scope > .pal-group', paletteEl).forEach((g) => { g.style.flex = ''; }); return; }
     const groups = $$(':scope > .pal-group', paletteEl);
     const widths = groups.map((g) => $$('.chip', g).map((c) => c.getBoundingClientRect().width));
     if (widths.some((ws) => !ws.length || ws.some((w) => !w))) return; // görünmüyor; ResizeObserver tekrar çağırır
@@ -80,6 +85,30 @@
     });
   }
 
+  // --- Konum: üstte / solda. Solda içeriği kadar dar durur ve simge şeridine daraltılabilir ---
+  const isLeft = () => S.settings.palPosition === 'left';
+  function applyPalPosition() {
+    document.body.classList.toggle('pal-left', isLeft());
+    const rail = isLeft() && !!S.settings.palRail;
+    paletteEl.classList.toggle('rail', rail);
+    const b = $('#btnPalPos');
+    b.title = T(isLeft() ? 'pal.toTop' : 'pal.toLeft');
+    b.setAttribute('aria-label', b.title);
+    const c = $('#btnPalCollapse');
+    c.title = T(rail ? 'pal.expandRail' : 'pal.collapseRail');
+    c.setAttribute('aria-label', c.title);
+    c.setAttribute('aria-expanded', String(!rail));
+    c.innerHTML = '';
+    c.append(ico(rail ? 'panelOpen' : 'panelClose'));
+    requestAnimationFrame(balancePalette);
+  }
+  function setPalPosition(pos) {
+    S.settings.palPosition = pos === 'left' ? 'left' : 'top';
+    saveSettings();
+    applyPalPosition();
+    events.emit('palette:moved');
+  }
+
   function applyPalCompact() {
     const on = !!S.settings.palCompact;
     paletteEl.classList.toggle('compact', on);
@@ -93,8 +122,11 @@
     $$('.pal-items', paletteEl).forEach((it) => it.addEventListener('scroll', markPalOverflow, { passive: true }));
     if (window.ResizeObserver) new ResizeObserver(() => balancePalette()).observe(paletteEl);
     btnPalToggle.addEventListener('click', () => { S.settings.palCompact = !S.settings.palCompact; saveSettings(); applyPalCompact(); });
+    $('#btnPalPos').addEventListener('click', () => setPalPosition(isLeft() ? 'top' : 'left'));
+    $('#btnPalCollapse').addEventListener('click', () => { S.settings.palRail = !S.settings.palRail; saveSettings(); applyPalPosition(); });
     applyPalCompact();
+    applyPalPosition();
   }
 
-  Seq.palette = { init, TYPE_LABEL, applyPalCompact, renderPalette };
+  Seq.palette = { init, TYPE_LABEL, applyPalCompact, applyPalPosition, renderPalette, setPalPosition };
 })(window.Seq = window.Seq || {});

@@ -102,7 +102,8 @@
         rz.classList.add('dragging');
         const x0 = e.clientX, w0 = pane.offsetWidth;
         const move = (ev) => {
-          const w = clamp(w0 + ev.clientX - x0, 380, window.innerWidth - 360);
+          // Önizlemeye en az ~330px kalır (palet solda olsa da sayfa yatay taşmaz)
+          const w = clamp(w0 + ev.clientX - x0, 380, $('#workspace').clientWidth - 24 - 8 - 300);
           pane.style.width = w + 'px';
         };
         const up = () => {

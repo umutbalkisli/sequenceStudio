@@ -19,6 +19,55 @@ test.describe('palet', () => {
     await expect(page.locator('.pcard')).toHaveCount(5);
   });
 
+  test('palet solda dikey sütun olabilir: katalog, roller, akış sırasıyla, her satırda bir öğe; ayar hatırlanır', async ({ context }) => {
+    await seed(context, { docs: basic(), current: 'd1' });
+    const page = await openApp(context, { hash: '/settings/general' });
+    await page.locator('#setPalPos').selectOption('left');
+    await page.locator('#mainNav [data-nav="flows"]').click();
+    await page.locator('.fp-row[data-id="d1"]').click();
+    await expect(page.locator('body')).toHaveClass(/pal-left/);
+    const pal = await page.locator('#palette').boundingBox();
+    const ws = await page.locator('#workspace').boundingBox();
+    expect(pal.width).toBeLessThan(260);
+    expect(pal.x + pal.width).toBeLessThanOrEqual(ws.x + 1); // solda, düzenleyicinin yanında
+    expect(pal.height).toBeGreaterThan(ws.height - 40); // tam yükseklik
+    // Sıra: katalog düğmesi, "Roller" başlığı ve roller, sonra akış adımları; her öğe tek satır
+    const tops = await page.evaluate(() => ['#palRoles .cat-open', '#palRoles .pal-subtitle', '#palRoles .role-chip', '#palSteps .chip'].map((s) => document.querySelector(s).getBoundingClientRect().top));
+    expect([...tops].sort((a, b) => a - b)).toEqual(tops);
+    await expect(page.locator('#palRoles .pal-subtitle')).toHaveText('Roller');
+    const lefts = await page.locator('#palSteps .chip').evaluateAll((cs) => [...new Set(cs.map((c) => Math.round(c.getBoundingClientRect().left)))]);
+    expect(lefts).toHaveLength(1);
+    // Tıklanabilir
+    await page.locator('#palSteps .chip', { hasText: 'Loop' }).click();
+    await expect(steps(page)).toHaveText('4');
+    await page.locator('#palRoles .role-chip', { hasText: 'Servis' }).click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.pcard')).toHaveCount(5);
+    // İçeriği kadar dar; geniş bir editörle bile sayfa yatay kaymaz
+    expect(pal.width).toBeLessThan(200);
+    await page.evaluate(() => { document.querySelector('#paneEditor').style.width = '900px'; });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(await page.evaluate(() => innerWidth));
+    await page.evaluate(() => { document.querySelector('#paneEditor').style.width = ''; });
+    // Simge şeridine daraltılır (adlar ipucunda), yine tıklanabilir; durum hatırlanır
+    await page.locator('#btnPalCollapse').click();
+    await expect(page.locator('#palette')).toHaveClass(/rail/);
+    expect((await page.locator('#palette').boundingBox()).width).toBeLessThan(60);
+    await expect(page.locator('#palSteps .chip', { hasText: 'Not' })).toHaveAttribute('title', /^Not — /);
+    await page.locator('#palSteps .chip', { hasText: 'Not' }).click();
+    await expect(steps(page)).toHaveText('5');
+    await page.reload();
+    await expect(page.locator('#palette')).toHaveClass(/rail/);
+    await page.locator('#btnPalCollapse').click();
+    await expect(page.locator('#palette')).not.toHaveClass(/rail/);
+    // Ayar hatırlanır; paletteki düğmeyle üste geri alınır
+    await page.reload();
+    await expect(page.locator('body')).toHaveClass(/pal-left/);
+    await page.locator('#btnPalPos').click();
+    await expect(page.locator('body')).not.toHaveClass(/pal-left/);
+    await expect(page.locator('#palRoles .pal-subtitle')).toBeHidden();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('seqstudio.settings')).palPosition)).toBe('top');
+  });
+
   test('kompakt mod hatırlanır; kod görünümünde palet devre dışı ama yerinde', async ({ context }) => {
     await seed(context, { docs: basic(), current: 'd1', settings: { palCompact: false } });
     const page = await openApp(context);
