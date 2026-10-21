@@ -15,9 +15,9 @@
  */
 (function (Seq) {
   'use strict';
-  const { $$, I18N, M, S, T, closeModal, debounce, downloadBlob, dropdown, events, h, ico, norm, oneLine, openModal, toast } = Seq.core;
+  const { I18N, M, S, T, closeModal, debounce, downloadBlob, dropdown, events, h, ico, norm, oneLine, openModal, toast } = Seq.core;
 
-  const saveCatalog = () => { Seq.palette.renderPalette(); events.emit('catalog:changed'); return window.SeqStorage.saveKV('catalog', S.catalog).catch(Seq.docs.storageError); };
+  const saveCatalog = () => { Seq.palette.renderPalette(); events.emit('catalog:changed'); return Seq.repo.saveCatalog(S.catalog).catch(Seq.docs.storageError); };
   const itemById = (id) => id && S.catalog.find((x) => x.id === id);
   const sortByName = (a, b) => a.name.localeCompare(b.name, I18N.getLang());
   // Üst öğesi katalogda olmayan öğeler en üst düzeyde görünür
@@ -84,12 +84,7 @@
   };
   /** id, of'un atası mı (ya da kendisi mi)? Taşımada döngüyü engeller */
   const isAncestor = (id, of) => pathOf(of).some((x) => x.id === id);
-  function uniqueItemId(name) {
-    const base = M.slugify(name).toLowerCase() || 'item';
-    let id = base, k = 2;
-    while (itemById(id)) id = base + '-' + k++;
-    return id;
-  }
+  const uniqueItemId = (name) => Seq.core.uniqueId(name, 'item', itemById);
   /** Tüm alt öğeler (derinlik öncelikli, ağaç sırasıyla) ve derinlikleri */
   function flatTree(parentId = null, depth = 0, out = []) {
     childrenOf(parentId).forEach((x) => { out.push({ item: x, depth }); flatTree(x.id, depth + 1, out); });
@@ -112,30 +107,14 @@
     }
   }
   const markerOf = (id) => new RegExp('^\\s*%%\\s*@item\\s+' + id + '\\s*$', 'm');
-  const codeOf = (d) => (S.doc && d.id === S.doc.id ? S.code : d.code);
-  /** Öğe değişti/silindi: bağlı katılımcıları tüm diyagramlarda güncelle (adı değiştirilmemişse yeni adı izler). */
-  function updateItemEverywhere(old, cur) {
-    const oldLabel = Seq.roles.composeLabel(Seq.roles.roleById(old.role), old.name);
-    const transform = (model) => {
-      let changed = false;
-      model.participants.forEach((p) => {
-        if (p.item !== old.id) return;
-        changed = true;
-        if (!cur) { delete p.item; return; }
-        const follows = p.label === oldLabel;
-        applyLook(p, cur);
-        if (follows) p.label = displayName(cur);
-      });
-      return changed;
-    };
-    S.docs.forEach((d) => {
-      if (S.doc && d.id === S.doc.id) return;
-      if (!markerOf(old.id).test(d.code)) return;
-      const m = M.parse(d.code);
-      if (transform(m)) d.code = M.serialize(m);
-    });
-    Seq.docs.persistDocs();
-    if (transform(S.model)) Seq.editor.commit();
+  const codeOf = (d) => Seq.core.docCode(d);
+  /**
+   * Öğe değişikliği yerleşti/öğe silindi: eski hâl öğenin geçmişine yazılır, açık akış hemen uyarlanır.
+   * Diğer akışlar yeniden yazılmaz; açılırken ya da okunurken uyarlanır (bkz. reconcile.js).
+   */
+  function settleItem(old, cur) {
+    if (Seq.reconcile.itemChanged(old, cur)) saveCatalog();
+    Seq.reconcile.current(cur ? null : { goneItems: [old.id] });
   }
   /** Öğenin kullanıldığı diyagramlar ve oradaki katılımcı adları: [{ doc, labels }] */
   function usageOf(id) {
@@ -179,12 +158,13 @@
   }
   /** Seçilen eşleşmeleri uygular: [{ doc, pid, item }]. Döner: bağlanan katılımcı sayısı */
   function applyMatches(list) {
+    if (!Seq.workspace.editable()) return 0;
     let n = 0, current = false;
     const byDoc = new Map();
     list.forEach((x) => { if (!byDoc.has(x.doc.id)) byDoc.set(x.doc.id, { doc: x.doc, rows: [] }); byDoc.get(x.doc.id).rows.push(x); });
     byDoc.forEach(({ doc, rows }) => {
       const isCur = S.doc && doc.id === S.doc.id;
-      const model = isCur ? S.model : M.parse(doc.code);
+      const model = isCur ? S.model : M.parse(codeOf(doc));
       let changed = false;
       rows.forEach(({ pid, item }) => {
         const x = itemById(item);
@@ -205,6 +185,7 @@
   }
   /** Katılımcıyı öğeye bağlar (açık diyagramda) */
   function linkParticipant(p, x) {
+    if (!Seq.workspace.editable()) return;
     applyItem(p, x);
     Seq.editor.commit();
     Seq.editor.flushHistory();
@@ -354,7 +335,7 @@
     const dd = dropdown(anchor, (box) => {
       box.append(h('div', { class: 'dd-head' }, h('b', null, opts.title || T('cat.title')),
         h('span', { class: 'dd-sum' }),
-        h('button', { class: 'icon-btn sm', title: T('cat.manage'), onclick: () => { close(); Seq.library.open('catalog'); } }, ico('edit'))));
+        h('button', { class: 'icon-btn sm', title: T('cat.manage'), onclick: () => { close(); Seq.router.go('catalog'); } }, ico('edit'))));
       box.append(input, list);
       draw();
     }, { class: 'catalog-picker', label: T('cat.title'), onClose: () => { picker = null; } });
@@ -442,17 +423,98 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Katalog paneli (Katalog ve roller penceresinin "Katalog" sekmesi): ağaç, sürükleyerek taşıma
+  // Öğe işlemleri (katalog sayfası ve diğer ekranlar bunları kullanır)
+  // Değişiklikler gecikmeli olarak tüm diyagramlara yayılır: ilk değişiklikten önceki tanım saklanır,
+  // kısa bir bekleyişten sonra eski → yeni farkı bağlı katılımcılara uygulanır.
   // ---------------------------------------------------------------------------
-  /**
-   * opts: { match: true } → doğrudan "Eşleşenleri bağla" görünümüyle açılır
-   */
-  function buildPanel(opts) {
-    const panel = h('div', { class: 'catalog-panel' });
-    const showTree = () => { panel.innerHTML = ''; panel.append(buildTree(showMatch)); };
-    const showMatch = () => { panel.innerHTML = ''; panel.append(buildMatchView(showTree)); };
-    if (opts && opts.match) showMatch(); else showTree();
-    return panel;
+  const snaps = new Map();
+  const pendingIds = new Set();
+  const flushPending = debounce(() => {
+    pendingIds.forEach((id) => {
+      const old = snaps.get(id);
+      if (old) settleItem(old, itemById(id) || null);
+      snaps.delete(id);
+    });
+    pendingIds.clear();
+  }, 300);
+  /** Değişiklik öncesi tanımı saklar ve yayılımı planlar */
+  function willChange(x, fn) {
+    if (!snaps.has(x.id)) snaps.set(x.id, { ...x });
+    fn();
+    saveCatalog();
+    pendingIds.add(x.id);
+    flushPending();
+  }
+  /** Öğeyi günceller. patch: { name?, kind?, role?, desc? } — boş rol/açıklama alanı kaldırır */
+  function updateItem(id, patch) {
+    if (!Seq.workspace.editable()) return null;
+    const x = itemById(id);
+    if (!x) return null;
+    willChange(x, () => {
+      Object.keys(patch).forEach((k) => {
+        const v = patch[k];
+        if ((k === 'role' || k === 'desc') && !v) delete x[k];
+        else if (k === 'name') x.name = String(v).trim() || x.id;
+        else x[k] = v;
+      });
+    });
+    return x;
+  }
+  /** Yeni öğe; tür verilmezse üst öğeye göre önerilir */
+  function createItem(opts) {
+    if (!Seq.workspace.editable()) return null;
+    opts = opts || {};
+    const name = (opts.name || T('cat.newName')).trim();
+    const x = { id: uniqueItemId(name), name, kind: opts.kind || defaultKindFor(opts.parent, opts.role || ''), parent: opts.parent || null };
+    if (opts.role) x.role = opts.role;
+    if (opts.desc) x.desc = opts.desc;
+    S.catalog = S.catalog.concat([x]);
+    saveCatalog();
+    return x;
+  }
+  /** Öğeyi siler; alt öğeleri bir üst düzeye çıkar, bağlı katılımcıların katalog bağlantısı kalkar */
+  function removeItem(id) {
+    if (!Seq.workspace.editable()) return;
+    const x = itemById(id);
+    if (!x) return;
+    willChange(x, () => {
+      childrenOf(x.id).forEach((k) => { k.parent = x.parent || null; });
+      S.catalog = S.catalog.filter((y) => y !== x);
+    });
+  }
+  /** Öğeyi başka bir üst öğenin altına (ya da en üste) taşır; döngü oluşturacaksa false */
+  function moveItem(id, parent) {
+    if (!Seq.workspace.editable()) return false;
+    const x = itemById(id);
+    if (!x || (parent && isAncestor(id, parent))) return false;
+    if ((x.parent || null) === (parent || null)) return true;
+    x.parent = parent || null;
+    saveCatalog();
+    return true;
+  }
+  /** Katalog dosyası: öğeler ve kullandıkları roller (başka tarayıcıda eksiksiz içe alınabilsin) */
+  function exportFile() {
+    const roles = [...new Set(S.catalog.map((x) => x.role))].map((id) => Seq.roles.roleById(id)).filter(Boolean);
+    downloadBlob(new Blob([JSON.stringify({ catalog: S.catalog, roles }, null, 2)], { type: 'application/json' }), 'sequence-studio-catalog.json');
+  }
+  /** Katalog dosyasını içe alır (aynı kimlikli öğeler güncellenir). Döner: içe alınan öğe sayısı */
+  async function importFile(file) {
+    const data = JSON.parse(await file.text());
+    const arr = Array.isArray(data) ? data : data.catalog || [];
+    if (!Array.isArray(data) && Array.isArray(data.roles)) Seq.roles.adoptRoles(data.roles.filter((r) => r && r.id && !Seq.roles.roleById(r.id)));
+    let n = 0;
+    arr.forEach((x) => {
+      if (!x || !/^[A-Za-z0-9_-]+$/.test(x.id || '') || typeof x.name !== 'string') return;
+      const it = itemDef(x);
+      it.id = x.id;
+      const i = S.catalog.findIndex((y) => y.id === x.id);
+      if (i >= 0) willChange(S.catalog[i], () => { S.catalog[i] = it; });
+      else S.catalog.push(it);
+      n++;
+    });
+    fillKinds();
+    saveCatalog();
+    return n;
   }
 
   /** "Eşleşenleri bağla": tüm diyagramlardaki eşleşmeleri gözden geçirip seçilenleri bağlar */
@@ -505,178 +567,6 @@
     return box;
   }
 
-  /** Ağaç görünümü; onMatch: "Eşleşenleri bağla" görünümüne geçiş */
-  function buildTree(onMatch) {
-    // Değişiklikler gecikmeli olarak tüm diyagramlara yayılır; eski tanım "snap" içinde tutulur
-    const snap = new Map(S.catalog.map((x) => [x.id, { ...x }]));
-    const pending = new Set();
-    const flush = debounce(() => {
-      pending.forEach((id) => {
-        const old = snap.get(id);
-        const cur = itemById(id);
-        if (old) updateItemEverywhere(old, cur || null);
-        if (cur) snap.set(id, { ...cur }); else snap.delete(id);
-      });
-      pending.clear();
-    }, 300);
-    const changed = (x) => { saveCatalog(); pending.add(x.id); flush(); };
-
-    let usagePanel = null;
-    const openUsage = (btn, x) => {
-      if (usagePanel) return usagePanel.close();
-      const list = usageOf(x.id);
-      usagePanel = dropdown(btn, (box) => {
-        box.append(h('div', { class: 'dd-head' }, h('b', null, oneLine(displayName(x))), h('span', { class: 'dd-sum' }, T('cat.usageN', { n: list.length }))));
-        box.append(h('ul', null, list.map(({ doc, labels }) => h('li', null,
-          h('button', { class: 'dd-item bl-item', onclick: () => { usagePanel.close(); showUsage(doc.id, x.id); } }, ico('file'),
-            h('span', { class: 'bl-text' }, h('b', null, doc.name), h('small', null, labels.join(', '))))))));
-      }, { onClose: () => { usagePanel = null; } });
-    };
-
-    const tree = h('div', { class: 'cat-tree' });
-    let dragId = null;
-    const moveTo = (id, parent) => {
-      const x = itemById(id);
-      if (!x || (parent && isAncestor(id, parent)) || (x.parent || null) === (parent || null)) return;
-      x.parent = parent || null;
-      // Taşınınca tür kendiliğinden düzelmez; uyumsuzsa satırda uyarı görünür
-      saveCatalog();
-      render();
-    };
-    const render = () => {
-      tree.innerHTML = '';
-      const rows = flatTree();
-      if (!rows.length) tree.append(h('p', { class: 'dd-empty' }, ico('help'), T('cat.emptyHint')));
-      rows.forEach(({ item: x, depth }) => {
-        const icon = isGroup(x) ? h('span', { class: 'role-icon group' }, ico('folder')) : h('span', { class: 'role-icon' });
-        const shown = h('small', { class: 'role-example' });
-        const refresh = () => {
-          if (isGroup(x)) return;
-          const lk = lookOf(x);
-          icon.style.setProperty('--c', lk.color);
-          icon.innerHTML = '';
-          icon.append(ico('t-' + lk.type));
-          shown.textContent = lk.role && (lk.role.prefix || lk.role.suffix) ? T('cat.willShow', { name: oneLine(displayName(x)) }) : '';
-        };
-        const name = h('input', { class: 'input', value: x.name, placeholder: T('cat.name') });
-        name.addEventListener('input', () => { x.name = name.value.trim() || x.id; refresh(); changed(x); });
-        const role = roleSelect(x.role);
-        role.addEventListener('change', () => { if (role.value) x.role = role.value; else delete x.role; refresh(); changed(x); });
-        // Tür: değişince alt öğelerin yerleşim uyarıları da değişebilir → ağaç yeniden çizilir
-        const kind = kindSelect(kindOf(x), true);
-        kind.addEventListener('change', () => {
-          x.kind = kind.value;
-          changed(x); // rolsüz öğenin görünümü türden gelir → diyagramlara yayılır
-          render();
-        });
-        const warnText = placementWarning(x);
-        const desc = h('input', { class: 'input', value: x.desc || '', placeholder: T('cat.descPh') });
-        desc.addEventListener('input', () => { if (desc.value.trim()) x.desc = desc.value.trim(); else delete x.desc; saveCatalog(); });
-        const used = usageOf(x.id).length;
-        const usage = used ? h('button', { class: 'cat-usage link', title: T('cat.usageTitle') }, T('cat.usageN', { n: used }))
-          : h('span', { class: 'cat-usage' }, T('cat.usageN', { n: 0 }));
-        if (used) usage.addEventListener('click', () => openUsage(usage, x));
-        const addChild = h('button', { class: 'icon-btn sm', title: T('cat.addChild') }, ico('plus'));
-        addChild.addEventListener('click', () => addItem(x.id));
-        const del = h('button', { class: 'icon-btn sm del', title: T('delete') }, ico('trash'));
-        del.addEventListener('click', () => {
-          const kids = childrenOf(x.id);
-          if ((used || kids.length) && !confirm(T('cat.confirmDelete', { name: x.name, n: used, k: kids.length }))) return;
-          kids.forEach((k) => { k.parent = x.parent || null; });
-          S.catalog = S.catalog.filter((y) => y !== x);
-          changed(x);
-          render();
-        });
-        const handle = h('span', { class: 'handle', title: T('cat.dragHint') }, ico('grip'));
-        refresh();
-        const row = h('div', { class: 'cat-row' + (warnText ? ' warn' : ''), 'data-id': x.id, style: `--depth:${depth}`, draggable: 'true' },
-          handle, icon, kind,
-          h('div', { class: 'cat-name' }, name, shown, warnText ? h('small', { class: 'cat-warn' }, ico('critical'), warnText) : null),
-          isGroup(x) ? h('span', { class: 'cat-norole' }, '—') : role, desc, usage, h('div', { class: 'cat-actions' }, addChild, del));
-        // Sürükle-bırak: bir öğenin üstüne bırakınca onun altına taşınır
-        row.addEventListener('dragstart', (e) => {
-          if (e.target.closest('input, select')) { e.preventDefault(); return; }
-          dragId = x.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', x.id); row.classList.add('dragging');
-        });
-        row.addEventListener('dragend', () => { dragId = null; row.classList.remove('dragging'); $$('.cat-row.drop-into', tree).forEach((el) => el.classList.remove('drop-into')); rootZone.classList.remove('over'); });
-        row.addEventListener('dragover', (e) => {
-          if (!dragId || dragId === x.id || isAncestor(dragId, x.id)) return;
-          e.preventDefault(); row.classList.add('drop-into');
-        });
-        row.addEventListener('dragleave', () => row.classList.remove('drop-into'));
-        row.addEventListener('drop', (e) => { e.preventDefault(); row.classList.remove('drop-into'); if (dragId) moveTo(dragId, x.id); });
-        tree.append(row);
-      });
-      tree.append(rootZone);
-    };
-    const rootZone = h('div', { class: 'cat-root-zone' }, T('cat.dropRoot'));
-    rootZone.addEventListener('dragover', (e) => { if (dragId) { e.preventDefault(); rootZone.classList.add('over'); } });
-    rootZone.addEventListener('dragleave', () => rootZone.classList.remove('over'));
-    rootZone.addEventListener('drop', (e) => { e.preventDefault(); rootZone.classList.remove('over'); if (dragId) moveTo(dragId, null); });
-
-    function addItem(parent) {
-      const base = T('cat.newName');
-      const x = { id: uniqueItemId(base), name: base, kind: defaultKindFor(parent, ''), parent: parent || null };
-      S.catalog = S.catalog.concat([x]);
-      saveCatalog();
-      render();
-      const inp = tree.querySelector(`.cat-row[data-id="${x.id}"] .cat-name .input`);
-      if (inp) { inp.focus(); inp.select(); inp.scrollIntoView({ block: 'nearest' }); }
-    }
-
-    const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
-    fileIn.addEventListener('change', async () => {
-      const f = fileIn.files[0];
-      fileIn.value = '';
-      if (!f) return;
-      try {
-        const data = JSON.parse(await f.text());
-        const arr = Array.isArray(data) ? data : data.catalog || [];
-        let n = 0;
-        arr.forEach((x) => {
-          if (!x || !/^[A-Za-z0-9_-]+$/.test(x.id || '') || typeof x.name !== 'string') return;
-          const it = itemDef(x);
-          it.id = x.id;
-          const i = S.catalog.findIndex((y) => y.id === x.id);
-          if (i >= 0) { if (!snap.has(x.id)) snap.set(x.id, { ...S.catalog[i] }); S.catalog[i] = it; } else S.catalog.push(it);
-          changed(it);
-          n++;
-        });
-        if (!Array.isArray(data) && Array.isArray(data.roles)) Seq.roles.adoptRoles(data.roles.filter((r) => r && r.id && !Seq.roles.roleById(r.id)));
-        if (fillKinds()) saveCatalog();
-        render();
-        toast(T('cat.imported', { n }));
-      } catch { toast(T('cat.importFailed'), 'err'); }
-    });
-
-    render();
-    const matchCount = collectMatches().length;
-    return h('div', null,
-      h('p', { class: 'roles-intro' }, T('cat.intro')),
-      tree,
-      h('div', { class: 'roles-foot' },
-        h('div', { class: 'row', style: 'flex:none' },
-          h('button', { class: 'btn sm', onclick: () => addItem(null) }, ico('plus'), T('cat.add')),
-          h('button', { class: 'btn sm ghost', title: T('cat.matchTitleHint'), disabled: !matchCount || null, onclick: onMatch },
-            ico('link'), T('cat.matchBtn'), matchCount ? h('span', { class: 'cat-count' }, String(matchCount)) : null)),
-        h('div', { class: 'row', style: 'flex:none' },
-          h('button', { class: 'btn sm ghost', onclick: () => {
-            // Öğelerle birlikte kullandıkları roller de dosyaya girer (başka tarayıcıda eksiksiz içe alınabilsin)
-            const roles = [...new Set(S.catalog.map((x) => x.role))].map((id) => Seq.roles.roleById(id)).filter(Boolean);
-            downloadBlob(new Blob([JSON.stringify({ catalog: S.catalog, roles }, null, 2)], { type: 'application/json' }), 'sequence-studio-catalog.json');
-          } }, ico('download'), T('role.export')),
-          h('button', { class: 'btn sm ghost', onclick: () => fileIn.click() }, ico('upload'), T('role.import')),
-          fileIn)),
-      h('p', { class: 'note-line' }, ico('help'), T('cat.note')));
-  }
-  /** Diyagramı açar ve öğeye bağlı ilk katılımcıyı gösterir */
-  function showUsage(docId, itemId) {
-    closeModal();
-    if (!S.doc || S.doc.id !== docId) Seq.docs.openDoc(docId);
-    const p = S.model.participants.find((x) => x.item === itemId);
-    if (p) Seq.participants.revealCard(p.uid);
-  }
-
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
   function init() {
     S.catalog = [];
@@ -684,7 +574,8 @@
   }
 
   Seq.catalog = {
-    init, adoptItems, applyItem, buildPanel, childrenOf, displayName, isGroup, itemById, kindOf, linkParticipant, lookOf, matchesFor, migrate, openPicker, openSaveDialog,
-    pathLabel, pathOf, saveCatalog, stripKnownDefs, unknownItems, usageOf, withDefs,
+    init, adoptItems, applyItem, applyLook, buildMatchView, childrenOf, collectMatches, createItem, displayName, exportFile, flatTree, importFile, isAncestor,
+    isGroup, itemById, kindOf, kindSelect, linkParticipant, lookOf, matchesFor, migrate, moveItem, openPicker, openSaveDialog, parentOf, parentSelect,
+    pathLabel, pathOf, placementWarning, removeItem, roleSelect, saveCatalog, stripKnownDefs, unknownItems, updateItem, usageOf, withDefs,
   };
 })(window.Seq = window.Seq || {});

@@ -4,7 +4,7 @@
  */
 (function (Seq) {
   'use strict';
-  const { $, $$, M, S, T, clamp, debounce, el, h, ico, saveSettings } = Seq.core;
+  const { $, $$, M, S, T, clamp, debounce, el, h, ico } = Seq.core;
 
   // ---------------------------------------------------------------------------
   // Çizim hattı (genişlemeye açık): modüller kendi adımlarını init()'te kaydeder; önizleme ve ekran dışı
@@ -226,7 +226,7 @@
       el.viewport.addEventListener('pointercancel', () => { start = null; el.viewport.classList.remove('panning'); });
     })();
     window.addEventListener('resize', debounce(() => { if (S.zoom.auto) fitView(); }, 150));
-    el.legend.addEventListener('change', () => { S.settings.legend = el.legend.checked; saveSettings(); scheduleRender(0); });
+    el.legend.addEventListener('change', () => Seq.workspace.set('legend', el.legend.checked));
     $('#zoomIn').addEventListener('click', () => zoomCenter(1.2));
     $('#zoomOut').addEventListener('click', () => zoomCenter(1 / 1.2));
     $('#zoomFit').addEventListener('click', () => { S.zoom.auto = true; fitView(); });

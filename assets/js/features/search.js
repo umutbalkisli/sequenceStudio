@@ -11,7 +11,7 @@
   // ---------------------------------------------------------------------------
   const searchCache = new Map();
  // doc id → { key, entry }
-  const folderPath = (id) => { const out = []; for (let f = Seq.drawer.folderById(id); f; f = Seq.drawer.folderById(f.parent)) out.unshift(f.name); return out.join(' / '); };
+  const folderPath = (id) => { const out = []; for (let f = Seq.folders.folderById(id); f; f = Seq.folders.folderById(f.parent)) out.unshift(f.name); return out.join(' / '); };
   function searchEntry(d) {
     const code = docCode(d);
     const key = code.length + ':' + (d.updated || 0) + ':' + d.name + ':' + (d.folder || '') + ':' + S.folders.length;
@@ -102,7 +102,6 @@
   const isOpen = () => !!searchUi && !searchUi.root.hidden;
   function closeSearch() { if (searchUi) { searchUi.root.hidden = true; } }
   function openSearch() {
-    Seq.drawer.closeDrawer();
     if (!searchUi) {
       const input = h('input', { class: 'search-input', spellcheck: 'false', autocomplete: 'off' });
       const list = h('div', { class: 'search-results', role: 'listbox' });
@@ -114,7 +113,8 @@
       searchUi = { root, input, list, foot, results: [], rows: [], active: 0 };
       const go = (r, hit) => {
         closeSearch();
-        if (!S.doc || S.doc.id !== r.e.d.id) Seq.docs.openDoc(r.e.d.id);
+        if (r.item) { Seq.router.go('catalog/' + encodeURIComponent(r.item.id)); return; }
+        Seq.router.openFlow(r.e.d.id);
         requestAnimationFrame(() => jumpTo(hit || r.hits[0]));
       };
       const mark = () => {
@@ -148,6 +148,30 @@
           list.append(row);
           return row;
         });
+        // Katalog öğeleri (ad, açıklama, kimlik) — katalog sayfasına götürür
+        if (toks.length && S.catalog.length) {
+          const items = S.catalog.filter((x) => {
+            const n = norm(Seq.catalog.displayName(x) + ' ' + (x.desc || '') + ' ' + x.id);
+            return toks.every((t) => n.includes(t));
+          }).slice(0, 8);
+          if (items.length) list.append(h('div', { class: 'search-sec' }, T('search.catalog')));
+          items.forEach((x) => {
+            const r = { item: x };
+            const i = searchUi.rows.length;
+            const lk = Seq.catalog.lookOf(x);
+            const row = h('div', { class: 'search-item', role: 'option', 'data-item': x.id },
+              h('span', { class: 'si-icon', style: `color:${lk.color}` }, ico(Seq.catalog.isGroup(x) ? 'folder' : 't-' + lk.type)),
+              h('div', { class: 'si-body' },
+                h('div', { class: 'si-name' }, hl(oneLine(Seq.catalog.displayName(x)), toks), h('span', { class: 'si-path' }, ico('layers'), Seq.catalog.pathLabel(x.id))),
+                x.desc ? h('div', { class: 'si-hit' }, h('span', { class: 'si-text' }, hl(x.desc, toks))) : null),
+              h('span', { class: 'si-time' }, T('c4.' + Seq.catalog.kindOf(x))));
+            row.addEventListener('click', () => go(r));
+            row.addEventListener('pointermove', () => { if (searchUi.active !== i) { searchUi.active = i; mark(); } });
+            list.append(row);
+            searchUi.rows.push(row);
+            results.push(r);
+          });
+        }
         foot.textContent = (q ? T('search.count', { n: results.length }) + ' · ' : '') + T('search.hint');
         mark();
       };
@@ -174,7 +198,6 @@
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
   function init() {
     $('#btnSearch').addEventListener('click', openSearch);
-    $('#btnDrawerSearch').addEventListener('click', openSearch);
   }
 
   Seq.search = { isOpen, init, closeSearch, folderPath, openSearch, searchUi };

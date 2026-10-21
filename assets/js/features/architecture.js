@@ -1,44 +1,37 @@
 /* Sequence Studio — mimari ekranı (C4)
  *
- * Üst bardaki "Akış / Mimari" geçişiyle açılan ikinci ekran. Katalog hiyerarşisini ve sekans diyagramlarından
+ * "#/architecture[/<odak>]" ekranı. Katalog hiyerarşisini ve sekans diyagramlarından
  * türetilen ilişkileri C1 (sistemler) → C2 (sistemin içi) → C3 (konteynerin içi) olarak çizer; bir öğeye
  * tıklayıp içine girilir; bir kenara tıklayınca o ilişkinin geçtiği akışlar listelenir. Yakınlaştırma (çubuk,
  * ⌘/Ctrl + tekerlek, + / - / 0), boş alandan sürükleyerek kaydırma; SVG, PNG, Mermaid ve draw.io dışa aktarma. Mantık lib/c4.js'tedir (SeqC4); bu modül ekranı, gezinmeyi ve dışa aktarmayı yönetir.
  */
 (function (Seq) {
   'use strict';
-  const { $, M, S, T, docCode, downloadBlob, dropdown, events, fileSafe, h, ico, mix, oneLine, saveSettings, toast } = Seq.core;
+  const { $, M, S, T, docCode, downloadBlob, dropdown, events, fileSafe, h, ico, mix, oneLine, toast } = Seq.core;
   const C4 = () => window.SeqC4;
 
-  let ready = false;
   let renderSeq = 0;
   let last = null; // { view, ids, rels, code }
   // Yakınlaştırma: z ölçek; fitNext → bir sonraki çizimde görünüme sığdır (yeni düzey açılınca)
   const zoom = { z: 1, fitNext: true, w: 0, h: 0 };
-  const screen = () => (S.settings.screen === 'arch' ? 'arch' : 'seq');
-  const isOpen = () => document.body.classList.contains('screen-arch');
-
-  /** Akış ↔ mimari ekranı */
-  function setScreen(s) {
-    const arch = s === 'arch';
-    S.settings.screen = arch ? 'arch' : 'seq';
-    saveSettings();
-    document.body.classList.toggle('screen-arch', arch);
-    $('#archScreen').hidden = !arch;
-    document.querySelectorAll('#screenSeg button').forEach((b) => b.classList.toggle('active', b.dataset.screen === S.settings.screen));
-    if (arch) render();
-  }
+  const isOpen = () => Seq.router.screen() === 'arch';
+  let focus = null; // odak öğe id (adresten gelir)
 
   const roleType = (id) => { const r = Seq.roles.roleById(id); return r ? r.type : ''; };
   const paperBg = () => Seq.theme.PAPER_BG[Seq.theme.mmThemeName()] || '#ffffff';
   /** Geçerli odak (yoksa C1); katalogdan silinmişse en üste dönülür */
-  const focusId = () => (Seq.catalog.itemById(S.settings.archFocus) ? S.settings.archFocus : null);
-  function setFocus(id) { S.settings.archFocus = id || null; saveSettings(); zoom.fitNext = true; render(); }
+  const focusId = () => (Seq.catalog.itemById(focus) ? focus : null);
+  /** Odağı değiştirir (adres de değişir; geri düğmesi önceki düzeye döner) */
+  function setFocus(id) { Seq.router.go('architecture' + (id ? '/' + encodeURIComponent(id) : '')); }
 
   // ---------------------------------------------------------------------------
   // Çizim
   // ---------------------------------------------------------------------------
-  async function render() {
+  /**
+   * Görünümü çizer. Üretilen Mermaid kodu öncekiyle aynıysa çizim yerinde bırakılır (yalnızca konum çubuğu,
+   * bilgi satırı ve tıklamaların kullandığı veri güncellenir); force: tema değişti, yine de baştan çiz.
+   */
+  async function render(force) {
     if (!isOpen()) return;
     const my = ++renderSeq;
     const canvas = $('#archCanvas');
@@ -47,9 +40,8 @@
     const v = C4().view(S.catalog, rels, focusId(), roleType);
     renderCrumbs(v);
     renderInfo(v, rels);
-    canvas.innerHTML = '';
-    if (!S.catalog.length) return canvas.append(empty(T('arch.emptyCatalog'), true));
-    if (!v.nodes.length) return canvas.append(empty(T('arch.emptyLevel'), false));
+    if (!S.catalog.length) { last = null; canvas.innerHTML = ''; return canvas.append(empty(T('arch.emptyCatalog'), true)); }
+    if (!v.nodes.length) { last = null; canvas.innerHTML = ''; return canvas.append(empty(T('arch.emptyLevel'), false)); }
     const bg = paperBg();
     const { code, ids } = C4().toMermaid(v, {
       name: (x) => oneLine(Seq.catalog.displayName(x)),
@@ -58,7 +50,13 @@
       more: (n) => T('arch.more', { n }),
       fill: (c, outer) => mix(c, bg, outer ? 0.05 : 0.14),
     });
+    if (!force && last && last.code === code && canvas.querySelector('svg')) {
+      last = { view: v, ids, rels, code };
+      if (zoom.fitNext) { zoom.fitNext = false; fitZoom(); }
+      return;
+    }
     last = { view: v, ids, rels, code };
+    canvas.innerHTML = '';
     try {
       const { svg } = await mermaid.render('arch-' + my, code);
       if (my !== renderSeq) return;
@@ -80,7 +78,7 @@
     }
   }
   const empty = (text, withBtn) => h('div', { class: 'arch-empty' }, ico('layers'), h('p', null, text),
-    withBtn ? h('button', { class: 'btn primary', onclick: () => Seq.library.open('catalog') }, ico('edit'), T('cat.manage')) : null);
+    withBtn ? h('a', { class: 'btn primary', href: '#/catalog' }, ico('edit'), T('cat.manage')) : null);
 
   /** Konum: Tüm sistemler › Ödeme sistemi › Ledger */
   function renderCrumbs(v) {
@@ -101,7 +99,7 @@
       box.append(' · ' + T('arch.unlinked', { n: rels.unlinked }));
       // Adı katalogla eşleşen ama bağlı olmayan katılımcılar varsa toplu bağlama önerilir
       const m = S.docs.reduce((k, d) => { const md = M.parse(docCode(d)); return k + md.participants.filter((p) => Seq.catalog.matchesFor(p, md)).length; }, 0);
-      if (m) box.append(' ', h('button', { class: 'link-btn', onclick: () => Seq.library.open('catalog', { match: true }) }, T('arch.linkMatches', { n: m })));
+      if (m) box.append(' ', h('a', { class: 'link-btn', href: '#/catalog?match=1' }, T('arch.linkMatches', { n: m })));
     }
   }
 
@@ -111,12 +109,12 @@
     svg.querySelectorAll('g.node').forEach((g) => {
       const m = /flowchart-(n\d+)-/.exec(g.id || '');
       const itemId = m && ids.get(m[1]);
-      const node = itemId && v.nodes.find((n) => n.id === itemId);
-      if (!node) return;
+      if (!itemId || !v.nodes.some((n) => n.id === itemId)) return;
       g.classList.add('arch-node');
       g.setAttribute('tabindex', '0');
       g.setAttribute('data-item', itemId);
-      const open = () => openNodeMenu(g, node);
+      // Veri tıklama anında güncel görünümden okunur (çizim yerinde bırakılmış olabilir)
+      const open = () => { const node = last && last.view.nodes.find((n) => n.id === itemId); if (node) openNodeMenu(g, node); };
       g.addEventListener('click', open);
       g.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
     });
@@ -149,8 +147,9 @@
         t.classList.add('arch-edge');
         t.addEventListener('mouseenter', () => hover(true));
         t.addEventListener('mouseleave', () => hover(false));
-        t.addEventListener('click', () => openEdgeMenu(label || hit, edge));
-        t.addEventListener('keydown', (e) => { if (e.key === 'Enter') openEdgeMenu(label || hit, edge); });
+        const cur = () => (last && last.view.edges.find((x) => x.from === edge.from && x.to === edge.to)) || edge;
+        t.addEventListener('click', () => openEdgeMenu(label || hit, cur()));
+        t.addEventListener('keydown', (e) => { if (e.key === 'Enter') openEdgeMenu(label || hit, cur()); });
       });
     });
   }
@@ -187,6 +186,7 @@
       if (node.hasChildren) {
         list.append(h('li', null, h('button', { class: 'dd-item', onclick: () => { menu.close(); setFocus(x.id); } }, ico('layers'), h('span', null, T('arch.zoomIn')))));
       }
+      list.append(h('li', null, h('button', { class: 'dd-item', onclick: () => { menu.close(); Seq.router.go('catalog/' + encodeURIComponent(x.id)); } }, ico('edit'), h('span', null, T('arch.openCatalog')))));
       [...used.values()].sort((a, b) => a.name.localeCompare(b.name)).forEach((d) => list.append(h('li', null,
         h('button', { class: 'dd-item bl-item', onclick: () => { menu.close(); openDiagram(d.id, ids); } }, ico('file'), h('span', { class: 'bl-text' }, h('b', null, d.name), h('small', null, T('arch.openSeq')))))));
       if (!node.hasChildren && !used.size) list.append(h('li', { class: 'dd-empty' }, ico('help'), T('arch.notUsed')));
@@ -198,8 +198,7 @@
    * yoksa öğeye bağlı ilk katılımcıyı gösterir.
    */
   function openDiagram(docId, itemIds, msg) {
-    setScreen('seq');
-    if (!S.doc || S.doc.id !== docId) Seq.docs.openDoc(docId);
+    Seq.router.openFlow(docId);
     if (msg) {
       const itemOf = new Map(S.model.participants.map((p) => [p.id, p.item]));
       let hit = null;
@@ -341,14 +340,25 @@
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
   function init() {
     wireZoom();
-    document.querySelectorAll('#screenSeg button').forEach((b) => b.addEventListener('click', () => setScreen(b.dataset.screen)));
     document.querySelectorAll('#archExport [data-fmt]').forEach((b) => b.addEventListener('click', () => exportAs(b.dataset.fmt)));
-    $('#archEditCatalog').addEventListener('click', () => Seq.library.open('catalog'));
     // Kayıtlı ekran, açılış tamamlanınca uygulanır; sonrasında bir diyagram açılırsa akış ekranına geçilir
-    events.on('app:ready', () => { ready = true; setScreen(screen()); });
-    events.on('doc:opened', () => { if (ready && isOpen()) setScreen('seq'); });
-    ['catalog:changed', 'docs:persisted', 'theme:changed'].forEach((e) => events.on(e, () => { if (isOpen()) render(); }));
+    Seq.router.register({
+      id: 'arch', nav: 'arch', pattern: /^architecture(?:\/([^/]+))?$/, params: (m) => ({ focus: m[1] ? decodeURIComponent(m[1]) : null }),
+      mount: (p) => { $('#archScreen').hidden = false; focus = p.focus; zoom.fitNext = true; render(); },
+      update: (p) => { focus = p.focus; zoom.fitNext = true; render(); },
+      unmount: () => { $('#archScreen').hidden = true; if (menu) menu.close(); },
+    });
+    // Veri değişmediyse (ör. açılıştaki kayıtlar) yeniden çizilmez; tema değişince her zaman çizilir
+    const sig = () => JSON.stringify(S.catalog) + '#' + S.docs.map((d) => d.id + ':' + d.updated).join('|');
+    let lastSig = null;
+    ['catalog:changed', 'docs:persisted'].forEach((e) => events.on(e, () => {
+      if (!isOpen() || sig() === lastSig) return;
+      lastSig = sig();
+      render();
+    }));
+    events.on('theme:changed', () => { if (isOpen()) render(true); });
+    events.on('route:changed', ({ screen }) => { if (screen === 'arch') lastSig = sig(); });
   }
 
-  Seq.arch = { init, isOpen, render, setFocus, setScreen };
+  Seq.arch = { init, isOpen, render, setFocus };
 })(window.Seq = window.Seq || {});

@@ -22,45 +22,62 @@
     <!-- ÜST BAR -->
     <header class="topbar">
       <div class="tb-left">
-        <button class="icon-btn" id="btnDocs" data-i18n-title="tb.docs"><i data-icon="menu"></i></button>
-        <div class="brand">
+        <a class="brand" href="#/flows">
           <span class="brand-mark"><i data-icon="logo"></i></span>
           <span class="brand-name">Sequence<b>Studio</b></span>
-        </div>
+        </a>
+        <!-- Etkin çalışma alanı (yerel sürümde tek ve sabit) -->
+        <button class="ws-badge" id="btnWorkspace"><i data-icon="workspace"></i><span></span><i data-icon="chevron"></i></button>
+        <span class="ro-pill" id="roPill" data-i18n-title="ws.readonlyNote"><i data-icon="lock"></i><span data-i18n="ws.readonly"></span></span>
         <span class="tb-sep"></span>
-        <div class="seg screen-seg" id="screenSeg" role="tablist">
-          <button data-screen="seq" class="active" role="tab" data-i18n-title="screen.seqTitle"><i data-icon="message"></i><span data-i18n="screen.seq"></span></button>
-          <button data-screen="arch" role="tab" data-i18n-title="screen.archTitle"><i data-icon="layers"></i><span data-i18n="screen.arch"></span></button>
-        </div>
-        <input id="docName" class="doc-name" spellcheck="false" data-i18n-ph="doc.untitled" />
+        <!-- Ana gezinme: ekranlar (yönlendirici "data-nav" değerine göre vurgular) -->
+        <nav class="main-nav" id="mainNav">
+          <a href="#/flows" data-nav="flows" data-i18n-title="nav.flows"><i data-icon="file"></i><span data-i18n="nav.flows"></span></a>
+          <a href="#/catalog" data-nav="catalog" data-i18n-title="nav.catalog"><i data-icon="layers"></i><span data-i18n="nav.catalog"></span></a>
+          <a href="#/architecture" data-nav="arch" data-i18n-title="nav.arch"><i data-icon="shapes"></i><span data-i18n="nav.arch"></span></a>
+        </nav>
+      </div>
+      <div class="tb-right">
+        <button class="icon-btn" id="btnSearch" data-i18n-title="search.title"><i data-icon="search"></i></button>
+        <button class="icon-btn" id="btnHelp" data-i18n-title="tb.help"><i data-icon="help"></i></button>
+        <button class="lang-btn" id="btnLang" data-i18n-title="tb.lang"><i data-icon="globe"></i><span id="langLabel">TR</span></button>
+        <button class="icon-btn" id="btnTheme"><i data-icon="moon"></i></button>
+        <a class="icon-btn" id="btnSettings" href="#/settings" data-nav="settings" data-i18n-title="nav.settings"><i data-icon="settings"></i></a>
+      </div>
+    </header>
+
+    <!-- AKIŞ ÇUBUĞU (yalnızca düzenleyicide; üst bar tüm ekranlarda aynı kalır):
+         solda akış (klasör yolu, ad, kayıt durumu, geçmiş), ortada diyagram başlığı, sağda işlemler -->
+    <div class="docbar tb-doc-only" id="docbar">
+      <div class="db-left">
+        <!-- Akışın klasör yolu (her klasör Akışlar sayfasını o klasörde açar) -->
+        <nav class="doc-crumbs" id="docCrumbs" hidden></nav>
+        <input id="docName" class="doc-name" spellcheck="false" data-i18n-ph="doc.untitled" data-i18n-title="doc.nameTitle" />
         <span class="save-state" id="saveState" data-i18n-title="tb.savedTitle"><i data-icon="check"></i><span data-i18n="tb.saved"></span></span>
         <button class="icon-btn sm" id="btnHistory" data-i18n-title="hist.btn"><i data-icon="history"></i></button>
         <button class="pill-btn ref" id="btnBacklinks" hidden><i data-icon="link"></i><span></span></button>
       </div>
-      <div class="tb-right">
+      <label class="title-row db-title" data-i18n-title="title.barTitle">
+        <i data-icon="type"></i>
+        <input id="diagramTitle" data-i18n-ph="title.ph" spellcheck="false" />
+      </label>
+      <div class="db-right">
         <div class="btn-group">
           <button class="icon-btn" id="btnUndo" data-i18n-title="tb.undo"><i data-icon="undo"></i></button>
           <button class="icon-btn" id="btnRedo" data-i18n-title="tb.redo"><i data-icon="redo"></i></button>
         </div>
-        <button class="icon-btn" id="btnSearch" data-i18n-title="search.title"><i data-icon="search"></i></button>
-        <button class="btn ghost" id="btnTemplates"><i data-icon="layout"></i><span data-i18n="tb.templates"></span></button>
-        <button class="btn ghost" id="btnImport"><i data-icon="upload"></i><span data-i18n="tb.import"></span></button>
-        <button class="icon-btn" id="btnHelp" data-i18n-title="tb.help"><i data-icon="help"></i></button>
-        <button class="lang-btn" id="btnLang" data-i18n-title="tb.lang"><i data-icon="globe"></i><span id="langLabel">TR</span></button>
-        <button class="icon-btn" id="btnTheme"><i data-icon="moon"></i></button>
+        <span class="tb-sep edit-only"></span>
+        <button class="icon-btn edit-only" id="btnTemplates" data-i18n-title="tb.templates"><i data-icon="layout"></i></button>
+        <button class="icon-btn edit-only" id="btnImport" data-i18n-title="tb.import"><i data-icon="upload"></i></button>
         <button class="btn primary" id="btnExport"><i data-icon="download"></i><span data-i18n="tb.export"></span></button>
       </div>
-    </header>
+    </div>
 
-    <!-- Sabit palet: roller, katılımcı tipleri ve akış adımları (görsel oluşturucu için) -->
+    <!-- Sabit palet: katalog ve roller, akış adımları (görsel oluşturucu için) -->
     <div class="palette" id="palette">
       <div class="pal-group pal-roles">
         <div class="pal-title" data-i18n="pal.roles"></div>
         <div class="pal-items" id="palRoles"></div>
-      </div>
-      <div class="pal-group">
-        <div class="pal-title" data-i18n="pal.participants"></div>
-        <div class="pal-items" id="palParticipants"></div>
       </div>
       <div class="pal-group">
         <div class="pal-title">
@@ -98,13 +115,6 @@
         <!-- GÖRSEL OLUŞTURUCU -->
         <div class="view view-builder active" id="viewBuilder">
           <div class="builder-scroll" id="builderScroll">
-            <div class="b-section">
-              <div class="title-row">
-                <i data-icon="type"></i>
-                <input id="diagramTitle" data-i18n-ph="title.ph" spellcheck="false" />
-              </div>
-            </div>
-
             <div class="b-section" id="partSection">
               <div class="b-section-head">
                 <h3><span data-i18n="sec.participants"></span> <span class="count" id="partCount">0</span></h3>
@@ -189,13 +199,18 @@
       </section>
     </main>
 
+    <!-- SAYFALAR: akış kütüphanesi, katalog, ayarlar (içerikleri modüllerince çizilir) -->
+    <section class="page-screen" id="flowsScreen" hidden></section>
+    <section class="page-screen" id="catalogScreen" hidden></section>
+    <section class="page-screen" id="settingsScreen" hidden></section>
+
     <!-- MİMARİ (C4): katalog hiyerarşisi + diyagramlardan türetilen ilişkiler -->
     <section class="arch-screen" id="archScreen" hidden>
       <div class="arch-head">
         <nav class="arch-crumbs" id="archCrumbs"></nav>
         <span class="arch-info" id="archInfo"></span>
         <div class="arch-actions" id="archExport">
-          <button class="btn ghost sm" id="archEditCatalog"><i data-icon="edit"></i><span data-i18n="cat.manage"></span></button>
+          <a class="btn ghost sm" id="archEditCatalog" href="#/catalog"><i data-icon="edit"></i><span data-i18n="cat.manage"></span></a>
           <span class="ph-sep"></span>
           <button class="btn ghost sm" data-fmt="svg"><i data-icon="vector"></i>SVG</button>
           <button class="btn ghost sm" data-fmt="png"><i data-icon="image"></i>PNG</button>
@@ -213,27 +228,6 @@
       </div>
     </section>
   </div>
-
-  <!-- Diyagram listesi çekmecesi -->
-  <aside class="drawer" id="drawer" aria-hidden="true">
-    <div class="drawer-head">
-      <h2 data-i18n="tb.docs"></h2>
-      <div class="row" style="flex:none;gap:2px">
-        <button class="icon-btn" id="btnDrawerSearch" data-i18n-title="search.title"><i data-icon="search"></i></button>
-        <button class="icon-btn" data-close><i data-icon="x"></i></button>
-      </div>
-    </div>
-    <div class="drawer-actions">
-      <button class="btn primary" id="btnNewDoc"><i data-icon="plus"></i><span data-i18n="drawer.new"></span></button>
-      <button class="btn" id="btnNewFolder" data-i18n-title="folder.newTitle"><i data-icon="folderPlus"></i><span data-i18n="folder.newShort"></span></button>
-    </div>
-    <div class="doc-list" id="docList"></div>
-    <div class="drawer-foot">
-      <div class="backup-box" id="backupBox"></div>
-      <p class="df-note"><i data-icon="lock"></i><span data-i18n="drawer.foot"></span></p>
-    </div>
-  </aside>
-  <div class="scrim" id="scrim"></div>
 
   <!-- Modal -->
   <div class="modal-root" id="modalRoot" hidden>
@@ -262,22 +256,32 @@
   <script src="assets/js/lib/zip.js"></script>
   <script src="assets/js/data/templates.js"></script>
   <script src="assets/js/core/icons.js"></script>
+  <script src="assets/js/lib/changeset.js"></script>
   <script src="assets/js/core/storage.js"></script>
   <!-- Çekirdek: paylaşılan durum ve DOM yardımcıları -->
   <script src="assets/js/core/core.js"></script>
+  <script src="assets/js/core/user.js"></script>
+  <script src="assets/js/core/repo.js"></script>
+  <script src="assets/js/core/router.js"></script>
+  <script src="assets/js/features/workspace.js"></script>
   <!-- Özellik modülleri (yüklenirken birbirine dokunmazlar; main.js hepsini başlatır) -->
   <script src="assets/js/features/theme.js"></script>
   <script src="assets/js/features/editor.js"></script>
   <script src="assets/js/features/docs.js"></script>
-  <script src="assets/js/features/drawer.js"></script>
+  <script src="assets/js/features/folders.js"></script>
+  <script src="assets/js/features/breadcrumb.js"></script>
   <script src="assets/js/features/preview.js"></script>
   <script src="assets/js/features/colors.js"></script>
   <script src="assets/js/features/legend.js"></script>
   <script src="assets/js/features/refs.js"></script>
+  <script src="assets/js/features/reconcile.js"></script>
   <script src="assets/js/features/lint.js"></script>
   <script src="assets/js/features/backlinks.js"></script>
   <script src="assets/js/features/architecture.js"></script>
   <script src="assets/js/features/present.js"></script>
+  <script src="assets/js/features/flows-page.js"></script>
+  <script src="assets/js/features/catalog-page.js"></script>
+  <script src="assets/js/features/settings-page.js"></script>
   <script src="assets/js/features/code-editor.js"></script>
   <script src="assets/js/features/layout.js"></script>
   <script src="assets/js/features/palette.js"></script>
@@ -285,7 +289,6 @@
   <script src="assets/js/features/participant-picker.js"></script>
   <script src="assets/js/features/roles.js"></script>
   <script src="assets/js/features/catalog.js"></script>
-  <script src="assets/js/features/library.js"></script>
   <script src="assets/js/features/defs-notice.js"></script>
   <script src="assets/js/features/steps.js"></script>
   <script src="assets/js/features/flow.js"></script>

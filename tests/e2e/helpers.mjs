@@ -29,9 +29,11 @@ export const doc = (id, name, code, extra = {}) => ({ id, name, code, updated: D
 
 /**
  * Depolamayı hazırlar. docs/folders/roles/catalog IndexedDB'ye (v2), settings/current localStorage'a yazılır.
+ * Uygulama açılınca veritabanını güncel sürüme yükseltir ve bu veriyi yerel çalışma alanına öğe kayıtları olarak taşır.
+ * workspace: çalışma alanı kaydı (ör. yetki testi için { role: 'viewer' }); verilmezse uygulama oluşturur.
  * legacy: eski sürümün localStorage anahtarları (taşıma testi için).
  */
-export async function seed(context, { settings = {}, docs, folders, roles, catalog, current, legacy, idb = true } = {}) {
+export async function seed(context, { settings = {}, docs, folders, roles, catalog, current, legacy, workspace, idb = true } = {}) {
   const page = await context.newPage();
   await page.goto(BLANK_URL);
   await page.evaluate(async (o) => {
@@ -55,11 +57,12 @@ export async function seed(context, { settings = {}, docs, folders, roles, catal
         if (o.folders) tx.objectStore('kv').put(o.folders, 'folders');
         if (o.roles) tx.objectStore('kv').put(o.roles, 'roles');
         if (o.catalog) tx.objectStore('kv').put(o.catalog, 'catalog');
+        if (o.workspace) tx.objectStore('kv').put([Object.assign({ id: 'local', kind: 'local', name: '' }, o.workspace)], 'workspaces');
         tx.objectStore('kv').put(Date.now(), 'migrated');
         tx.oncomplete = () => { db.close(); res(); };
       };
     });
-  }, { settings, docs, folders, roles, catalog, current, legacy, idb: idb && !legacy });
+  }, { settings, docs, folders, roles, catalog, current, legacy, workspace, idb: idb && !legacy });
   await page.close();
 }
 
@@ -84,27 +87,49 @@ export async function setCode(page, code) {
 export const getCode = (page) => page.locator('#code').inputValue();
 export const setView = (page, v) => page.click(`[data-view=${v}]`);
 
-/** Menüden diyagram açar. */
-export async function openDocFromDrawer(page, name) {
-  // Çekmece kayarak açılır; yük altında ilk tıklama boşa gidebilir, o yüzden gerekirse yinelenir
-  await expect(async () => {
-    if (!(await page.locator('#drawer.open').count())) await page.click('#btnDocs');
-    await page.locator('#drawer.open .doc-item', { hasText: name }).first().click({ timeout: 2000 });
-    await expect(page.locator('#docName')).toHaveValue(name, { timeout: 1000 });
-  }).toPass({ timeout: 10000 });
+const exact = (s) => new RegExp('^' + s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$');
+/** Akışlar sayfasında adı tam eşleşen satır */
+export const flowRow = (page, name) => page.locator('.fp-row', { has: page.locator('.fp-name b', { hasText: exact(name) }) });
+/** Akışlar sayfasından akışı düzenleyicide açar. */
+export async function openDocFromFlows(page, name) {
+  await page.locator('#mainNav [data-nav="flows"]').click();
+  await flowRow(page, name).click();
+  await expect(page.locator('#docName')).toHaveValue(name);
+}
+/** Akışlar sayfasından akışı siler (onay penceresini test kabul etmeli); sonra önceki ekrana döner. */
+export async function deleteDocFromFlows(page, name) {
+  await page.locator('#mainNav [data-nav="flows"]').click();
+  const row = flowRow(page, name);
+  await row.hover();
+  await row.locator('.fp-row-actions .del').click();
+  await expect(row).toHaveCount(0);
+  await page.goBack();
 }
 
-/** IndexedDB içeriği: { docs, kv: { anahtar: değer } } */
+/**
+ * IndexedDB içeriği: { docs, kv, entities }. Öğe kayıtları (sürüm 4) eski biçimde de okunabilsin diye
+ * silinmemiş akışlar `docs`, klasör/rol/katalog listeleri sıralarıyla `kv.folders|roles|catalog` olarak döner;
+ * `entities` ham kayıtlardır (üstveri ve silme izleri dahil).
+ */
 export function idbDump(page) {
   return page.evaluate(() => new Promise((res) => {
     const r = indexedDB.open('sequence-studio');
     r.onsuccess = () => {
-      const db = r.result, out = { docs: [], kv: {} };
-      const tx = db.transaction(['docs', 'kv']);
-      tx.objectStore('docs').getAll().onsuccess = (e) => { out.docs = e.target.result; };
+      const db = r.result, out = { docs: [], kv: {}, entities: [] };
+      const tx = db.transaction(['entities', 'kv']);
+      tx.objectStore('entities').getAll().onsuccess = (e) => { out.entities = e.target.result; };
       const kv = tx.objectStore('kv');
       kv.getAllKeys().onsuccess = (e) => e.target.result.forEach((k) => { kv.get(k).onsuccess = (ev) => { out.kv[k] = ev.target.result; }; });
-      tx.oncomplete = () => { db.close(); res(out); };
+      tx.oncomplete = () => {
+        const live = (type) => out.entities.filter((x) => x.type === type && !x.meta.deleted).sort((a, b) => a.pos - b.pos).map((x) => x.data);
+        out.docs = live('doc');
+        out.kv.folders = live('folder');
+        out.kv.catalog = live('catalog');
+        const roles = out.entities.filter((x) => x.type === 'role');
+        out.kv.roles = roles.length || out.kv['ws:local:rolesInit'] ? live('role') : undefined;
+        db.close();
+        res(out);
+      };
     };
   }));
 }

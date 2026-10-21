@@ -1,10 +1,10 @@
 /* Sequence Studio — palet
  *
- * Roller, katılımcı tipleri ve akış adımları paleti; grup genişliklerini dengeleme ve kompakt mod.
+ * Katalog/roller ve akış adımları paleti (katılımcı tipleri katılımcı panelinde seçilir); grup genişliklerini dengeleme ve kompakt mod.
  */
 (function (Seq) {
   'use strict';
-  const { $, $$, M, PCOLORS, S, T, el, h, ico, saveSettings } = Seq.core;
+  const { $, $$, M, S, T, el, h, ico, saveSettings } = Seq.core;
 
   // ---------------------------------------------------------------------------
   // Palet
@@ -12,7 +12,6 @@
   const TYPE_LABEL = Object.fromEntries(M.PARTICIPANT_TYPES.map((t) => [t.v, t.label]));
 
   function renderPalette() {
-    el.palP.innerHTML = '';
     el.palS.innerHTML = '';
     el.palR.innerHTML = '';
     // Katalog: tek düğme, aranabilir ağaç açar (öğeler palete çip olarak dökülmez)
@@ -31,13 +30,6 @@
     });
     el.palR.append(h('button', { class: 'chip chip-edit', title: T('role.manage'), onclick: Seq.roles.openRoles }, ico('edit'), (S.roles || []).length ? null : T('role.manageShort')));
     requestAnimationFrame(() => { if (typeof balancePalette === 'function') balancePalette(); });
-    M.PARTICIPANT_TYPES.forEach((t, i) => {
-      const chip = h('div', { class: 'chip', draggable: 'true', title: T('type.' + t.v) + ' — ' + T('pal.clickOrDrag'), style: `--c:${PCOLORS[i % PCOLORS.length]}` }, ico('t-' + t.v), t.label);
-      chip.addEventListener('click', () => Seq.participants.addParticipant(t.v));
-      chip.addEventListener('dragstart', (e) => Seq.flow.startDrag(e, { kind: 'newPart', type: t.v }));
-      chip.addEventListener('dragend', Seq.flow.endDrag);
-      el.palP.append(chip);
-    });
     Seq.steps.list().forEach((s) => {
       const chip = h('div', { class: 'chip', draggable: 'true', title: (M.BLOCK_TYPES[s.id] ? T('block.' + s.id) + ' — ' : '') + T('pal.clickOrDragFlow'), style: `--c:${s.color}` }, ico(s.icon), T('step.' + s.id));
       chip.addEventListener('click', () => Seq.flow.addStep(s.id));
@@ -50,7 +42,7 @@
   // Palet şeridi: gruplar içerikleriyle orantılı genişlikte; isteğe bağlı kompakt (tek satır)
   const paletteEl = $('#palette');
   const btnPalToggle = $('#btnPalToggle');
-  // Üç grubu, hepsi en az satıra sığacak şekilde genişliklendirir: her grup için "R satır için
+  // Grupları, hepsi en az satıra sığacak şekilde genişliklendirir: her grup için "R satır için
   // gereken en küçük genişlik" çip kaydırması simüle edilerek bulunur; toplamın sığdığı en küçük
   // R seçilir, kalan alan gruplara orantılı dağıtılır.
   const CHIP_GAP = 5;

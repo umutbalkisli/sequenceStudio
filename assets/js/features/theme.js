@@ -56,7 +56,7 @@
     .loopText, .loopText > tspan, .sectionTitle, .sectionTitle > tspan { font-style: italic; }
   `;
 
-  const mmThemeName = () => (S.settings.mmTheme === 'auto' ? (appTheme() === 'dark' ? 'studio-dark' : 'studio-light') : S.settings.mmTheme);
+  const mmThemeName = () => (Seq.workspace.get('mmTheme') === 'auto' ? (appTheme() === 'dark' ? 'studio-dark' : 'studio-light') : Seq.workspace.get('mmTheme'));
 
   function configureMermaid() {
     const t = mmThemeName();
@@ -66,7 +66,7 @@
       fontFamily: FONT,
       htmlLabels: false,
       sequence: {
-        useMaxWidth: false, mirrorActors: !!S.settings.mirror, actorMargin: 64, boxMargin: 10, noteMargin: 12,
+        useMaxWidth: false, mirrorActors: !!Seq.workspace.get('mirror'), actorMargin: 64, boxMargin: 10, noteMargin: 12,
         messageMargin: 38, boxTextMargin: 6, diagramMarginX: 24, diagramMarginY: 16, wrap: false,
       },
       // Mimari (C4) görünümü
@@ -93,8 +93,9 @@
       configureMermaid();
       Seq.preview.scheduleRender(0);
     });
-    el.mmTheme.addEventListener('change', () => { S.settings.mmTheme = el.mmTheme.value; saveSettings(); configureMermaid(); Seq.preview.scheduleRender(0); });
-    el.mirror.addEventListener('change', () => { S.settings.mirror = el.mirror.checked; saveSettings(); configureMermaid(); Seq.preview.scheduleRender(0); });
+    // Diyagram görünümü çalışma alanına aittir (main.js workspace:changed ile denetimleri ve çizimi günceller)
+    el.mmTheme.addEventListener('change', () => Seq.workspace.set('mmTheme', el.mmTheme.value));
+    el.mirror.addEventListener('change', () => Seq.workspace.set('mirror', el.mirror.checked));
   }
 
   Seq.theme = { init, FONT, PAPER_BG, applyAppTheme, configureMermaid, mmThemeName };

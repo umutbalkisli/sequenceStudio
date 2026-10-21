@@ -1,6 +1,6 @@
 // Katılımcı kataloğu: C4 tarzı hiyerarşi (öğe → rol), kataloğa kaydetme, aranabilir seçici, değişikliklerin
 // yayılması, sürükleyerek taşıma, tanımların dışarı taşınması/içe alınması ve rol silme koruması.
-import { test, expect, seed, openApp, getCode, openExport, openDocFromDrawer, download, idbDump, doc, seq } from './helpers.mjs';
+import { test, expect, seed, openApp, getCode, openExport, openDocFromFlows, download, idbDump, doc, seq } from './helpers.mjs';
 
 // Ödeme sistemi › Ledger servisi › Ledger DB (roller hazır setten)
 const CATALOG = [
@@ -12,12 +12,16 @@ const linked = (item, role, color, type, id, label) =>
   `%% @item ${item}\n%% @role ${role}\n%% @color ${color}\nparticipant ${id}${type ? `@{ "type": "${type}" }` : ''} as ${label}\n`;
 const docCode = (page, id) => page.evaluate((id) => new Promise((res) => {
   const r = indexedDB.open('sequence-studio');
-  r.onsuccess = () => { r.result.transaction('docs').objectStore('docs').get(id).onsuccess = (e) => res(e.target.result.code); };
+  r.onsuccess = () => { r.result.transaction('entities').objectStore('entities').get('local|doc|' + id).onsuccess = (e) => res(e.target.result.data.code); };
 }), id);
-const openLibrary = async (page, tab) => {
-  await page.locator('#palRoles .chip-edit').click();
-  await page.locator(`.lib-tabs [data-tab="${tab}"]`).click();
+/** Katalog sayfasında bir öğeyi açar (ağaçtan tıklayarak) */
+const openItem = async (page, id) => {
+  await page.locator('#mainNav [data-nav="catalog"]').click();
+  await page.locator(`.cp-row[data-id="${id}"]`).click();
+  await expect(page).toHaveURL(new RegExp('#/catalog/' + id + '$'));
 };
+const detail = (page) => page.locator('.cp-detail');
+const treeIds = (page) => page.locator('.cp-tree .cp-row').evaluateAll((rows) => rows.map((r) => r.dataset.id + ':' + r.style.getPropertyValue('--depth')));
 
 test('katılımcı kataloğa kaydedilir: ad rol eklerinden arındırılır, üst öğe seçilir, yol gösterilir', async ({ context }) => {
   await seed(context, { docs: [doc('d1', 'A', seq('participant P@{ "type": "database" } as Ledger DB\nP->>P: x\n'))], current: 'd1', catalog: CATALOG.slice(0, 2) });
@@ -29,7 +33,7 @@ test('katılımcı kataloğa kaydedilir: ad rol eklerinden arındırılır, üst
   await expect(dlg.locator('.cs-preview')).toHaveText('Diyagramda: Ledger DB');
   await dlg.locator('.cat-parent').selectOption('ledger');
   await dlg.locator('.btn.primary').click();
-  await expect.poll(() => getCode(page)).toMatch(/%% @item ledger-2\n\s*%% @role database\n\s*%% @color #[0-9a-f]{6}\n\s*participant P@\{ "type": "database" \} as Ledger DB/);
+  await expect.poll(() => getCode(page)).toMatch(/%% @item ledger-[a-z0-9]{4}\n\s*%% @role database\n\s*%% @color #[0-9a-f]{6}\n\s*participant P@\{ "type": "database" \} as Ledger DB/);
   await page.locator('.pcard', { hasText: 'Ledger DB' }).click();
   await expect(page.locator('#popover .cat-path')).toHaveText('Ödeme sistemi › Ledger Service › Ledger DB');
   // Rol öğeden gelir: rol çipleri yerine bilgi gösterilir
@@ -56,7 +60,7 @@ test('paletteki seçici: arama atalarıyla gösterir; eklenen öğe ikinci kez e
   await expect(page.locator('.pcard')).toHaveCount(2);
 });
 
-test('öğe değişiklikleri yayılır: adı izleyenler güncellenir, özel ad korunur; rol değişince görünüm değişir', async ({ context }) => {
+test('öğe değişiklikleri tembel yayılır: diğer akış açılınca uyarlanır; adı izleyenler güncellenir, özel ad korunur', async ({ context }) => {
   await seed(context, {
     docs: [
       doc('d1', 'Aktif', seq(linked('ledger', 'service', '#2fbf7f', '', 'L', 'Ledger Service') + 'L->>L: x\n')),
@@ -65,29 +69,44 @@ test('öğe değişiklikleri yayılır: adı izleyenler güncellenir, özel ad k
     current: 'd1', catalog: CATALOG,
   });
   const page = await openApp(context);
-  await openLibrary(page, 'catalog');
-  const row = page.locator('.cat-row[data-id="ledger"]');
-  await row.locator('.cat-name .input').fill('Defter');
+  await openItem(page, 'ledger');
+  await detail(page).locator('.cp-name').fill('Defter');
+  await expect(page.locator('.cp-row[data-id="ledger"]')).toContainText('Defter Service'); // ağaç da güncellenir
   await expect.poll(() => getCode(page)).toContain('participant L as Defter Service');
-  await row.locator('.cat-role').selectOption('database');
+  await detail(page).locator('.cat-role').selectOption('database');
   await expect.poll(() => getCode(page)).toMatch(/%% @role database\n\s*%% @color #f97a3c\n\s*participant L@\{ "type": "database" \} as Defter DB/);
+  // Diğer akış yeniden yazılmaz (paylaşılan çalışma alanında çakışma üretmesin) …
+  await page.waitForTimeout(500);
+  expect(await docCode(page, 'd2')).toMatch(/%% @role service\n\s*%% @color #2fbf7f\n\s*participant L as Muhasebe/);
+  // … açılınca güncel tanıma uyarlanır ve kaydedilir; elle verilen ad korunur
+  await page.evaluate(() => window.Seq.router.openFlow('d2'));
+  await expect(page.locator('#docName')).toHaveValue('Diğer');
+  expect(await getCode(page)).toMatch(/%% @role database\n\s*%% @color #f97a3c\n\s*participant L@\{ "type": "database" \} as Muhasebe/);
   await expect.poll(() => docCode(page, 'd2')).toMatch(/participant L@\{ "type": "database" \} as Muhasebe/);
+  // Öğenin geçmişi kaydedildi (eski ad ve rol)
+  const ledger = (await idbDump(page)).kv.catalog.find((x) => x.id === 'ledger');
+  expect(ledger.past.map((e) => e.name + '/' + e.role)).toEqual(['Defter/service', 'Ledger/service']);
 });
 
 test('ağaçta sürükleyerek taşınır; silinen öğenin alt öğeleri bir üst düzeye çıkar', async ({ context }) => {
   await seed(context, { docs: [doc('d1', 'A', seq('participant X\nX->>X: y\n'))], current: 'd1', catalog: CATALOG.concat([{ id: 'orders', name: 'Sipariş sistemi', role: 'external' }]) });
-  const page = await openApp(context);
-  await openLibrary(page, 'catalog');
-  const ids = () => page.locator('.cat-row').evaluateAll((rows) => rows.map((r) => r.dataset.id + ':' + r.style.getPropertyValue('--depth')));
+  const page = await openApp(context, { hash: '/catalog' });
+  const ids = () => treeIds(page);
   await expect.poll(ids).toEqual(['payments:0', 'ledger:1', 'ledger-db:2', 'orders:0']);
-  await page.locator('.cat-row[data-id="ledger-db"] .handle').dragTo(page.locator('.cat-row[data-id="orders"]'));
+  await page.locator('.cp-row[data-id="ledger-db"]').dragTo(page.locator('.cp-row[data-id="orders"]'));
   await expect.poll(ids).toEqual(['payments:0', 'ledger:1', 'orders:0', 'ledger-db:1']);
   // "ledger"in altına alınan "payments" döngü olurdu: bırakma kabul edilmez
-  await page.locator('.cat-row[data-id="payments"] .handle').dragTo(page.locator('.cat-row[data-id="ledger"]'));
+  await page.locator('.cp-row[data-id="payments"]').dragTo(page.locator('.cp-row[data-id="ledger"]'));
   await expect.poll(ids).toEqual(['payments:0', 'ledger:1', 'orders:0', 'ledger-db:1']);
+  // Dal kapatılınca altı gizlenir (durum hatırlanır)
+  await page.locator('.cp-row[data-id="payments"] .cp-caret').click();
+  await expect.poll(ids).toEqual(['payments:0', 'orders:0', 'ledger-db:1']);
+  await page.locator('.cp-row[data-id="payments"] .cp-caret').click();
 
   page.once('dialog', (d) => d.accept());
-  await page.locator('.cat-row[data-id="payments"] .del').click();
+  await page.locator('.cp-row[data-id="payments"]').click();
+  await detail(page).locator('.btn.danger').click();
+  await expect(page).toHaveURL(/#\/catalog$/);
   await expect.poll(ids).toEqual(['ledger:0', 'orders:0', 'ledger-db:1']);
   await expect.poll(async () => (await idbDump(page)).kv.catalog.find((x) => x.id === 'ledger').parent).toBe(null);
 });
@@ -98,16 +117,19 @@ test('kullanım listesinden diyagram açılır; öğeyi kullanan rol silinemez',
     current: 'd1', catalog: CATALOG,
   });
   const page = await openApp(context);
-  await openLibrary(page, 'roles');
+  // Roller Ayarlar sayfasında (paletteki ✎ oraya götürür)
+  await page.locator('#palRoles .chip-edit').click();
+  await expect(page).toHaveURL(/#\/settings\/roles$/);
   await page.locator('.role-row:not(.role-head)').filter({ has: page.locator('.role-example', { hasText: 'Order DB' }) }).locator('.del').click();
   await expect(page.locator('.toast').last()).toContainText('katalog öğesi kullanıyor');
   await expect(page.locator('.role-row:not(.role-head)')).toHaveCount(7);
 
-  await page.locator('.lib-tabs [data-tab="catalog"]').click();
-  await page.locator('.cat-row[data-id="ledger-db"] button.cat-usage').click();
-  await page.locator('.dropdown .dd-item', { hasText: 'Sipariş' }).click();
-  await expect(page.locator('.modal-root')).toBeHidden();
+  await openItem(page, 'ledger-db');
+  await expect(detail(page)).toContainText('Kullanıldığı akışlar (1)');
+  await detail(page).locator('.link-row', { hasText: 'Sipariş' }).click();
+  await expect(page).toHaveURL(/#\/flows\/d2$/);
   await expect(page.locator('#docName')).toHaveValue('Sipariş');
+  await expect(page.locator('.pcard.flash')).toContainText('Ledger DB');
 });
 
 test('dışarı çıkan kod öğe, üst öğe ve rol tanımlarını taşır; boş profilde hiyerarşiyle içe alınır', async ({ context, browser }) => {
@@ -193,10 +215,10 @@ test.describe('eşleşenleri bağla', () => {
       ],
       current: 'd1', catalog: MORE,
     });
-    const page = await openApp(context);
-    await page.locator('#palRoles .chip-edit').click();
-    await page.locator('.lib-tabs [data-tab="catalog"]').click();
-    await page.locator('.roles-foot .btn', { hasText: 'Eşleşenleri bağla' }).click();
+    const page = await openApp(context, { hash: '/catalog' });
+    await expect(page.locator('#catMatchBtn')).toHaveText('Eşleşenleri bağla (3)');
+    await page.locator('#catMatchBtn').click();
+    await expect(page).toHaveURL(/#\/catalog\?match=1$/);
     const rows = page.locator('.cm-row');
     await expect(rows).toHaveText([/Ledger DB.*Ledger DB.*aynı ad/, /Ledger.*2 aday/, /Order Service.*Order Service.*aynı ad/]);
     expect(await rows.locator('input[type=checkbox]').evaluateAll((cbs) => cbs.map((c) => c.checked))).toEqual([true, false, true]);
@@ -205,21 +227,23 @@ test.describe('eşleşenleri bağla', () => {
     await expect(page.locator('.toast').last()).toContainText('3 katılımcı');
     await expect.poll(() => getCode(page)).toMatch(/%% @item ledger-db\n/);
     await expect.poll(() => docCode(page, 'd2')).toMatch(/%% @item order-api\n[\s\S]*%% @item ledger\n[\s\S]*participant L as Ledger Service/);
-    // Ağaç görünümüne dönülür; bekleyen eşleşme kalmadığı için düğme pasif
-    await expect(page.locator('.roles-foot .btn', { hasText: 'Eşleşenleri bağla' })).toBeDisabled();
+    // Genel bakışa dönülür; bekleyen eşleşme kalmadığı için düğme pasif
+    await expect(page).toHaveURL(/#\/catalog$/);
+    await expect(page.locator('#catMatchBtn')).toBeDisabled();
   });
 
   test('mimari ekranı bağlı olmayan eşleşmeleri bildirir ve toplu bağlamayı açar', async ({ context }) => {
     await seed(context, {
       docs: [doc('d1', 'A', seq('%% @item order-api\n%% @role service\nparticipant O as Order Service\nparticipant D@{ "type": "database" } as Ledger DB\nO->>D: oku\n'))],
-      current: 'd1', catalog: MORE, settings: { screen: 'arch' },
+      current: 'd1', catalog: MORE,
     });
-    const page = await openApp(context);
+    const page = await openApp(context, { hash: '/architecture' });
     await expect(page.locator('#archInfo')).toContainText('1 mesaj sayılmadı');
     await page.locator('#archInfo .link-btn', { hasText: '1 eşleşeni bağla' }).click();
     await expect(page.locator('.cm-row')).toHaveCount(1);
+    await expect(page).toHaveURL(/#\/catalog\?match=1$/);
     await page.locator('.cat-match .btn.primary').click();
-    await page.locator('.modal [data-close]').click();
+    await page.locator('#mainNav [data-nav="arch"]').click();
     await expect(page.locator('#archInfo')).not.toContainText('sayılmadı');
     await expect(page.locator('#archCanvas .edgeLabel', { hasText: 'oku' })).toHaveCount(1);
   });
@@ -236,18 +260,27 @@ test.describe('C4 türleri', () => {
 
   test('ağaçta tür seçilir; grup çizilmez ve rolsüzdür; yanlış yerleşim uyarılır ve düzeltilince kalkar', async ({ context }) => {
     await seed(context, { docs: [doc('d1', 'A', seq('participant X\nX->>X: y\n'))], current: 'd1', catalog: KCAT });
-    const page = await openApp(context);
-    await openLibrary(page, 'catalog');
-    await expect(page.locator('.cat-row[data-id="co"] .cat-norole')).toBeVisible();
-    await expect(page.locator('.cat-row[data-id="co"] .cat-kind')).toHaveValue('group');
-    await expect(page.locator('.cat-row.warn')).toHaveCount(1);
-    await expect(page.locator('.cat-row[data-id="api"] .cat-warn')).toContainText('konteynerin içinde');
+    const page = await openApp(context, { hash: '/catalog' });
+    // Genel bakış: tür sayıları ve uyumsuz yerleşim listesi
+    await expect(page.locator('.cp-stat')).toHaveText([/0\s*Grup|1\s*Grup/, /Kişi/, /2\s*Sistem/, /1\s*Konteyner/, /1\s*Bileşen/]);
+    await expect(page.locator('.cp-tree .cp-warn')).toHaveCount(1);
+    await expect(page.locator('.cp-overview')).toContainText('Yerleşimi uyumsuz 1 öğe');
+    // Grubun rolü yok
+    await page.locator('.cp-row[data-id="co"]').click();
+    await expect(detail(page).locator('.cat-kind')).toHaveValue('group');
+    await expect(detail(page).locator('.cat-role')).toHaveCount(0);
+    await page.locator('.cp-row[data-id="api"]').click();
+    await expect(detail(page).locator('.cat-warn')).toContainText('konteynerin içinde');
     // Bileşeni Ledger konteynerinin altına taşı → uyarı kalkar
-    await page.locator('.cat-row[data-id="api"] .handle').dragTo(page.locator('.cat-row[data-id="ledger"]'));
-    await expect(page.locator('.cat-row.warn')).toHaveCount(0);
+    await page.locator('.cp-row[data-id="api"]').dragTo(page.locator('.cp-row[data-id="ledger"]'));
+    await expect(page.locator('.cp-tree .cp-warn')).toHaveCount(0);
     // Ledger'ı sisteme çevir → sistemin içinde sistem olamaz: uyarı
-    await page.locator('.cat-row[data-id="ledger"] .cat-kind').selectOption('system');
-    await expect(page.locator('.cat-row[data-id="ledger"] .cat-warn')).toContainText('en üstte');
+    await page.locator('.cp-row[data-id="ledger"]').click();
+    await detail(page).locator('.cat-kind').selectOption('system');
+    await expect(detail(page).locator('.cat-warn')).toContainText('en üstte');
+    // Tür süzgeci
+    await page.locator('.cp-kinds button[data-kind="component"]').click();
+    await expect(page.locator('.cp-tree .cp-row:not(.dim)')).toHaveText([/Ledger API/]);
     await expect.poll(async () => (await idbDump(page)).kv.catalog.find((x) => x.id === 'ledger').kind).toBe('system');
   });
 
@@ -279,10 +312,10 @@ test.describe('C4 türleri', () => {
     await expect.poll(async () => (await idbDump(page)).kv.catalog.find((x) => x.name === 'Kuyruk')).toMatchObject({ kind: 'component', parent: 'ledger' });
   });
 
-  test('türü olmayan eski katalog açılışta yerine göre türlenir', async ({ context }) => {
-    await seed(context, { docs: [doc('d1', 'A', seq('participant X\nX->>X: y\n'))], current: 'd1', catalog: CATALOG });
+  test('türü olmayan eski katalog açılışta yerine göre türlenir (rolü actor olan kök öğe kişi olur)', async ({ context }) => {
+    await seed(context, { docs: [doc('d1', 'A', seq('participant X\nX->>X: y\n'))], current: 'd1', catalog: CATALOG.concat([{ id: 'cust', name: 'Müşteri', role: 'user' }]) });
     const page = await openApp(context);
-    await expect.poll(async () => (await idbDump(page)).kv.catalog.map((x) => x.id + ':' + x.kind)).toEqual(['payments:system', 'ledger:container', 'ledger-db:component']);
+    await expect.poll(async () => (await idbDump(page)).kv.catalog.map((x) => x.id + ':' + x.kind)).toEqual(['payments:system', 'ledger:container', 'ledger-db:component', 'cust:person']);
   });
 });
 
@@ -294,11 +327,10 @@ test('rol isteğe bağlı: rolsüz öğenin görünümü türden gelir; tür de�
   await expect.poll(() => getCode(page)).toMatch(/%% @item billing\n\s*%% @color #3a8dde\n\s*participant Billing\n/);
   expect(await getCode(page)).not.toContain('@role');
 
-  await openLibrary(page, 'catalog');
-  const row = page.locator('.cat-row[data-id="billing"]');
-  // Satırda sıra: tür, ad, rol
-  expect(await row.evaluate((r) => [...r.children].map((c) => c.className.split(' ')[0] || c.tagName))).toEqual(
-    ['handle', 'role-icon', 'select', 'cat-name', 'select', 'input', 'cat-usage', 'cat-actions']);
+  await openItem(page, 'billing');
+  const row = detail(page);
+  // Formda sıra: tür, ad, rol, üst öğe, açıklama
+  await expect(row.locator('.cp-form > label')).toHaveText(['C4 türü', 'Ad', 'Rol', 'Üst öğe', 'Açıklama']);
   await expect(row.locator('.cat-role')).toHaveValue('');
   await row.locator('.cat-kind').selectOption('person');
   await expect.poll(() => getCode(page)).toMatch(/%% @item billing\n\s*%% @color #6c7cff\n\s*actor Billing\n/);

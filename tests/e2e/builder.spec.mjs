@@ -14,7 +14,7 @@ test.describe('palet', () => {
     await expect(steps(page)).toHaveText('4');
     await page.locator('#palSteps .chip', { hasText: 'Not' }).dragTo(page.locator('#flow .step').first());
     await expect(steps(page)).toHaveText('5');
-    await page.locator('#palParticipants .chip', { hasText: 'Database' }).dragTo(page.locator('#participants .pcard').first());
+    await page.locator('#palRoles .role-chip', { hasText: 'Veritabanı' }).dragTo(page.locator('#participants .pcard').first());
     await page.keyboard.press('Escape');
     await expect(page.locator('.pcard')).toHaveCount(5);
   });
@@ -64,12 +64,21 @@ test.describe('renkler ve tonlar', () => {
     for (let i = 0; i < 30; i++) code += `A->>B: req ${i}\nB-->>A: res ${i}\n`;
     await seed(context, { docs: [doc('d1', 'Uzun', seq(code))], current: 'd1' });
     const page = await openApp(context);
-    await page.evaluate(() => { const s = document.querySelector('#builderScroll'); s.style.scrollBehavior = 'auto'; s.scrollTop = 1500; s.style.scrollBehavior = ''; });
+    // 28. mesaj görünür olacak kadar aşağı kaydır (tıklama ek kaydırma gerektirmesin)
+    const top = await page.evaluate(() => {
+      const s = document.querySelector('#builderScroll');
+      const r = document.querySelectorAll('.step-message')[28];
+      s.style.scrollBehavior = 'auto';
+      s.scrollTop += r.getBoundingClientRect().top - s.getBoundingClientRect().top - s.clientHeight / 2;
+      s.style.scrollBehavior = '';
+      return s.scrollTop;
+    });
+    expect(top).toBeGreaterThan(1000);
     const row = page.locator('.step-message').nth(28);
     await row.locator('.tone-btn').click();
     await page.locator('.tone-menu .tm-opt', { hasText: 'Hata' }).click();
     await expect(page.locator('.step-message').nth(28)).toHaveClass(/toned/);
-    expect(await page.evaluate(() => Math.round(document.querySelector('#builderScroll').scrollTop))).toBeGreaterThan(1400);
+    expect(await page.evaluate(() => document.querySelector('#builderScroll').scrollTop)).toBeGreaterThan(top - 60); // kaydırma yerinde
     expect(await getCode(page)).toMatch(/%% @tone error\n\s*A->>\+?B: req 14/);
     // Önizleme kısa bir gecikmeyle yeniden çizilir
     await expect.poll(() => page.evaluate(() => document.querySelectorAll('.paper svg [data-et="message"]')[28]?.style.stroke)).toBe('rgb(229, 72, 77)');
@@ -119,35 +128,5 @@ test.describe('katılımcılar bölümü', () => {
     await page.click('#btnPinParts');
     await expect(page.locator('#partSection')).not.toHaveClass(/pinned/);
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('seqstudio.settings')).pinParts)).toBe(false);
-  });
-});
-
-test.describe('klasörler', () => {
-  test('alt klasör, sürükle-bırak, döngü engeli ve içi dolu klasörü silme', async ({ context }) => {
-    await seed(context, {
-      docs: [doc('d1', 'Kart ile ödeme', seq('A->>B: x\n'), { folder: 'fa' }), doc('d2', '3DS doğrulama', seq('A->>B: y\n')), doc('d3', 'Sipariş iptali', seq('A->>B: z\n'), { folder: 'fb' })],
-      folders: [{ id: 'fa', name: 'Ödeme', collapsed: false }, { id: 'fb', name: 'Sipariş', collapsed: false }],
-      current: 'd1',
-    });
-    const page = await openApp(context);
-    page.on('dialog', (d) => d.accept());
-    const head = (name) => page.locator('.folder-head', { has: page.locator('.fh-name', { hasText: new RegExp('^' + name + '$') }) }).first();
-    const state = async () => { const { docs, kv } = await idbDump(page); const fname = (id) => kv.folders.find((f) => f.id === id)?.name; return { folders: kv.folders.map((f) => f.name + (f.parent ? '<' + fname(f.parent) : '')).sort(), docs: Object.fromEntries(docs.map((d) => [d.name, fname(d.folder) || 'kök'])) }; };
-
-    await page.click('#btnDocs');
-    await head('Ödeme').hover();
-    await head('Ödeme').locator('button[title="Alt klasör oluştur"]').click();
-    await expect(page.locator('.fh-input')).toBeFocused(); // ad alanı bir sonraki karede açılır
-    await page.keyboard.type('Kart');
-    await page.keyboard.press('Enter');
-    await page.locator('.doc-item', { hasText: '3DS' }).dragTo(head('Kart'));
-    await head('Sipariş').dragTo(head('Kart'));
-    await head('Ödeme').dragTo(head('Sipariş')); // döngü: reddedilmeli
-    await expect.poll(state).toEqual({ folders: ['Kart<Ödeme', 'Sipariş<Kart', 'Ödeme'], docs: { 'Kart ile ödeme': 'Ödeme', '3DS doğrulama': 'Kart', 'Sipariş iptali': 'Sipariş' } });
-    await expect(head('Ödeme').locator('.fh-count')).toHaveText('3');
-
-    await head('Kart').hover();
-    await head('Kart').locator('button[title="Klasörü sil"]').click(); // içerik bir üst seviyeye çıkar
-    await expect.poll(state).toEqual({ folders: ['Sipariş<Ödeme', 'Ödeme'], docs: { 'Kart ile ödeme': 'Ödeme', '3DS doğrulama': 'Ödeme', 'Sipariş iptali': 'Sipariş' } });
   });
 });

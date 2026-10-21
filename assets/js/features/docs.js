@@ -1,6 +1,6 @@
 /* Sequence Studio — diyagramlar
  *
- * Diyagram oluşturma/açma/silme, kalıcı kayıt (SeqStorage) ve kapanışta veri kaybını önleyen acil kayıt.
+ * Diyagram oluşturma/açma/silme, kalıcı kayıt (Seq.repo) ve kapanışta veri kaybını önleyen acil kayıt.
  */
 (function (Seq) {
   'use strict';
@@ -21,8 +21,8 @@
   }
   /** Diyagram ve klasörleri kaydeder (IndexedDB'de yalnızca değişenler yazılır). */
   function persistDocs() {
-    window.SeqStorage.saveDocs(S.docs).catch(storageError);
-    window.SeqStorage.saveKV('folders', S.folders).catch(storageError);
+    Seq.repo.saveDocs(S.docs).catch(storageError);
+    Seq.repo.saveFolders(S.folders).catch(storageError);
     store.set(LS.cur, S.doc && S.doc.id);
     events.emit('docs:persisted');
   }
@@ -48,29 +48,40 @@
     // Kayıtlı hâlden eski değilse ve farklıysa uygula (içerik dışı değişiklikler de — ör. yoksayılan roller — zamanı değiştirmez)
     else if ((r.updated || 0) >= (d.updated || 0) && JSON.stringify(r) !== JSON.stringify(d)) Object.assign(d, r);
     else { localStorage.removeItem(RESCUE_KEY); return; }
-    window.SeqStorage.saveDocs(S.docs).then(() => localStorage.removeItem(RESCUE_KEY)).catch(storageError);
+    Seq.repo.saveDocs(S.docs).then(() => localStorage.removeItem(RESCUE_KEY)).catch(storageError);
+  }
+  // Kayıt göstergesi: düzenleme beklerken ve depo yazarken "Kaydediliyor…", yazma bitince "Kaydedildi", hata olursa uyarı.
+  // Depo durumu "repo:status" olayıyla gelir (bulut sürümünde senkronizasyon durumu da aynı yoldan gösterilir).
+  let editPending = false;
+  function showSaveState(state) {
+    el.saveState.classList.toggle('dirty', state === 'saving');
+    el.saveState.classList.toggle('error', state === 'error');
+    el.saveState.lastChild.textContent = T(state === 'saving' ? 'tb.saving' : state === 'error' ? 'tb.saveError' : 'tb.saved');
   }
   const doSave = debounce(() => {
+    editPending = false;
     if (!S.doc) return;
     if (S.doc.code !== S.code) { S.doc.code = S.code; S.doc.updated = Date.now(); }
     persistDocs();
     events.emit('doc:saved', { doc: S.doc });
-    el.saveState.classList.remove('dirty');
-    el.saveState.lastChild.textContent = T('tb.saved');
+    if (Seq.repo.status() !== 'saving') showSaveState(Seq.repo.status());
   }, 500);
   function scheduleSave() {
-    el.saveState.classList.add('dirty');
-    el.saveState.lastChild.textContent = T('tb.saving');
+    editPending = true;
+    showSaveState('saving');
     doSave();
   }
 
   function createDoc(name, code, open, folder) {
+    // Salt okunur çalışma alanında yeni akış oluşturulmaz (boş çalışma alanında açılış için geçici akış hariç)
+    if (S.docs.length && !Seq.workspace.editable()) return null;
     // Kodda elle girilmiş aktivasyon işaretleri varsa onlara dokunma
     const d = { id: newDocId(), name: uniqueDocName(name), code, updated: Date.now(), autoAct: !M.hasManualActivation(M.parse(code)) };
     if (folder) d.folder = folder;
     S.docs.unshift(d);
     persistDocs();
     if (open !== false) openDoc(d.id);
+    events.emit('doc:created', { doc: d, open });
     return d;
   }
   function uniqueDocName(name) {
@@ -89,15 +100,19 @@
     el.docName.value = d.name;
     S.zoom.auto = true;
     if (d.autoAct === undefined) d.autoAct = !M.hasManualActivation(M.parse(d.code));
-    Seq.editor.applyCode(d.code, 'load');
+    // Tembel yayılım: katalog/rol/akış adı değişiklikleri akış açılırken uygulanır (salt okunurda yalnızca bellekte)
+    const code = Seq.reconcile.docCode(d);
+    if (code !== d.code && Seq.workspace.can('edit')) d.code = code;
+    Seq.editor.applyCode(code, 'load');
     Seq.editor.refreshAutoAct('load');
     Seq.editor.resetHistory();
     persistDocs();
     events.emit('doc:opened', { doc: d });
   }
-  function deleteDoc(id) {
+  /** Diyagramı siler. opts.confirmed: onay sorulmaz (toplu silmede onay bir kez alınır) */
+  function deleteDoc(id, opts) {
     const d = S.docs.find((x) => x.id === id);
-    if (!d || !confirm(T('doc.confirmDelete', { name: d.name }))) return;
+    if (!d || !Seq.workspace.editable() || (!(opts && opts.confirmed) && !confirm(T('doc.confirmDelete', { name: d.name })))) return;
     S.docs = S.docs.filter((x) => x.id !== id);
     if (!S.docs.length) createDoc(T('doc.untitled'), tplL(window.SeqTemplates[0]).code, false);
     if (S.doc.id === id) { S.doc = null; openDoc(S.docs[0].id); }
@@ -109,6 +124,7 @@
 
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
   function init() {
+    events.on('repo:status', ({ state }) => { if (!editPending) showSaveState(state); });
     el.docName.addEventListener('input', () => {
       if (!S.doc) return;
       S.doc.name = el.docName.value.trim() || T('doc.untitled');

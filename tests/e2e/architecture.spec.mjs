@@ -23,7 +23,7 @@ const edgeLabels = (page) => page.locator('#archCanvas .edgeLabel').evaluateAll(
 test('C1 → C2 → C3: ilişkiler diyagramlardan türetilir; konum çubuğuyla geri dönülür', async ({ context }) => {
   await seed(context, { docs: DOCS(), current: 'a', catalog: CATALOG });
   const page = await openApp(context);
-  await page.locator('#screenSeg [data-screen="arch"]').click();
+  await page.locator('#mainNav [data-nav="arch"]').click();
   await expect(page.locator('#archScreen')).toBeVisible();
   await expect(page.locator('#palette')).toBeHidden();
   await expect(page.locator('.arch-level')).toHaveText(/C1/);
@@ -45,7 +45,8 @@ test('C1 → C2 → C3: ilişkiler diyagramlardan türetilir; konum çubuğuyla 
   await expect.poll(() => nodes(page)).toEqual(['ledger-db']);
   await expect(page.locator('#archCrumbs .crumb')).toHaveText(['Tüm sistemler', 'Ödeme sistemi', 'Ledger Service']);
 
-  // Ekran ve odak yeniden açılışta korunur
+  // Ekran ve odak adreste: yeniden açılışta korunur, geri düğmesi önceki düzeye döner
+  await expect(page).toHaveURL(/#\/architecture\/ledger$/);
   await page.reload();
   await expect(page.locator('.arch-level')).toHaveText(/C3/);
   await page.locator('#archCrumbs .crumb', { hasText: 'Tüm sistemler' }).click();
@@ -53,24 +54,30 @@ test('C1 → C2 → C3: ilişkiler diyagramlardan türetilir; konum çubuğuyla 
 });
 
 test('düğüm menüsünden diyagram açılınca akış ekranına geçilir ve katılımcı gösterilir', async ({ context }) => {
-  await seed(context, { docs: DOCS().concat([doc('b', 'Boş', seq('participant Z\nZ->>Z: z\n'))]), current: 'b', catalog: CATALOG, settings: { screen: 'arch' } });
-  const page = await openApp(context);
+  await seed(context, { docs: DOCS().concat([doc('b', 'Boş', seq('participant Z\nZ->>Z: z\n'))]), current: 'b', catalog: CATALOG });
+  const page = await openApp(context, { hash: '/architecture' });
   await expect.poll(() => nodes(page)).toEqual(['customer', 'orders', 'pay']);
   await page.locator('.arch-node[data-item="pay"]').click();
   await page.locator('.dropdown .dd-item', { hasText: 'Sipariş akışı' }).click();
   await expect(page.locator('#archScreen')).toBeHidden();
   await expect(page.locator('#docName')).toHaveValue('Sipariş akışı');
   await expect(page.locator('.pcard.flash')).toContainText('Ödeme Gateway'); // sistemin ilk bağlı katılımcısı
-  await expect(page.locator('#screenSeg [data-screen="seq"]')).toHaveClass(/active/);
+  await expect(page.locator('#mainNav [data-nav="flows"]')).toHaveClass(/active/);
+  await expect(page).toHaveURL(/#\/flows\/a$/);
 });
 
 test('katalog değişince yeniden çizilir; dışa aktarma; boş katalogda yönlendirme', async ({ context }) => {
-  await seed(context, { docs: DOCS(), current: 'a', catalog: CATALOG, settings: { screen: 'arch' } });
-  const page = await openApp(context);
+  await seed(context, { docs: DOCS(), current: 'a', catalog: CATALOG });
+  const page = await openApp(context, { hash: '/architecture' });
   await expect.poll(() => nodes(page)).toEqual(['customer', 'orders', 'pay']);
+  // "Kataloğu düzenle" katalog sayfasına götürür; geri dönünce mimari yeniden çizilir
   await page.locator('#archEditCatalog').click();
-  await page.locator('.cat-row[data-id="pay"] .cat-name .input').fill('Ödeme platformu');
-  await page.locator('.modal [data-close]').click();
+  await expect(page).toHaveURL(/#\/catalog$/);
+  await page.locator('.cp-row[data-id="pay"]').click();
+  await page.locator('.cp-detail .cp-name').fill('Ödeme platformu');
+  await page.goBack();
+  await page.goBack();
+  await expect(page).toHaveURL(/#\/architecture$/);
   await expect(page.locator('#archCanvas .arch-node[data-item="pay"]')).toContainText('Ödeme platformu');
 
   const mmd = await download(page, () => page.locator('#archExport [data-fmt="mmd"]').click());
@@ -92,8 +99,8 @@ test('katalog değişince yeniden çizilir; dışa aktarma; boş katalogda yönl
 test('kenara tıklayınca ilişkinin geçtiği akışlar mesajlarıyla listelenir; seçilen akışta mesaj gösterilir', async ({ context }) => {
   const docs = DOCS().concat([doc('b', 'Bakiye', seq(part('O', 'order-api', 'service', 'Order Service') + part('L', 'ledger', 'service', 'Ledger Service')
     + 'O->>O: hazırla\nO->>L: bakiye sorgula\nL-->>O: bakiye\n'))]);
-  await seed(context, { docs, current: 'a', catalog: CATALOG, settings: { screen: 'arch' } });
-  const page = await openApp(context);
+  await seed(context, { docs, current: 'a', catalog: CATALOG });
+  const page = await openApp(context, { hash: '/architecture' });
   await expect.poll(() => nodes(page)).toEqual(['customer', 'orders', 'pay']);
 
   // Sipariş sistemi → Ödeme sistemi: iki akışta geçer (etikete tıklanır)
@@ -110,7 +117,9 @@ test('kenara tıklayınca ilişkinin geçtiği akışlar mesajlarıyla listeleni
   await expect(page.locator('#flow .step.selected .text-input')).toHaveValue('bakiye sorgula'); // "hazırla" değil, ilişkinin mesajı
 
   // Çizginin kendisine (görünmez geniş alan) tıklamak da çalışır
-  await page.locator('#screenSeg [data-screen="arch"]').click();
+  await page.locator('#mainNav [data-nav="arch"]').click();
+  await expect(page.locator('#archScreen')).toBeVisible();
+  await expect.poll(() => nodes(page)).toEqual(['customer', 'orders', 'pay']);
   // Eğrinin sınır kutusunun ortası çizginin üstünde olmayabilir: yolun orta noktasına tıklanır
   const pt = await page.locator('#archCanvas .arch-edge-hit[data-edge="customer>orders"]').evaluate((p) => {
     const m = p.getPointAtLength(p.getTotalLength() / 3);
@@ -131,8 +140,8 @@ test('tek kök grup kullanan katalogda C1 grubun içindeki sistemleri gösterir;
     { id: 'gw', name: 'Ödeme', role: 'gateway', kind: 'container', parent: 'pay' },
   ];
   const code = seq(part('O', 'order-api', 'service', 'Order Service') + part('G', 'gw', 'gateway', 'Ödeme Gateway') + 'O->>G: öde\n');
-  await seed(context, { docs: [doc('a', 'Akış', code)], current: 'a', catalog: cat, settings: { screen: 'arch' } });
-  const page = await openApp(context);
+  await seed(context, { docs: [doc('a', 'Akış', code)], current: 'a', catalog: cat });
+  const page = await openApp(context, { hash: '/architecture' });
   await expect.poll(() => nodes(page)).toEqual(['orders', 'pay']);
   await page.locator('.arch-node[data-item="pay"]').click();
   await page.locator('.dropdown .dd-item', { hasText: 'İçine gir' }).click();
@@ -141,8 +150,8 @@ test('tek kök grup kullanan katalogda C1 grubun içindeki sistemleri gösterir;
 });
 
 test('yakınlaştırma: çubuk, ⌘/Ctrl + tekerlek, klavye, sığdır; boş alandan sürükleyerek kaydırma', async ({ context }) => {
-  await seed(context, { docs: DOCS(), current: 'a', catalog: CATALOG, settings: { screen: 'arch' } });
-  const page = await openApp(context);
+  await seed(context, { docs: DOCS(), current: 'a', catalog: CATALOG });
+  const page = await openApp(context, { hash: '/architecture' });
   await expect.poll(() => nodes(page)).toEqual(['customer', 'orders', 'pay']);
   const val = page.locator('#archZoomVal');
   const width = () => page.locator('#archCanvas svg').evaluate((s) => s.getBoundingClientRect().width);
@@ -184,8 +193,8 @@ test('yakınlaştırma: çubuk, ⌘/Ctrl + tekerlek, klavye, sığdır; boş ala
 });
 
 test('draw.io dışa aktarma: sınır kapsayıcı, iç düğümler onun içinde, oklar düğümlere bağlı', async ({ context }) => {
-  await seed(context, { docs: DOCS(), current: 'a', catalog: CATALOG, settings: { screen: 'arch', archFocus: 'pay' } });
-  const page = await openApp(context);
+  await seed(context, { docs: DOCS(), current: 'a', catalog: CATALOG });
+  const page = await openApp(context, { hash: '/architecture/pay' });
   await expect.poll(() => nodes(page)).toEqual(['gw', 'ledger', 'orders']);
   const file = await download(page, () => page.locator('#archExport [data-fmt="drawio"]').click());
   expect(file.name).toBe('mimari - Ödeme sistemi.drawio');

@@ -25,7 +25,7 @@
   ];
   const presetRole = (r) => ({ id: r.id, name: r[I18N.getLang()] || r.en, type: r.type, color: r.color, prefix: r.prefix, suffix: r.suffix });
 
-  const saveRoles = () => window.SeqStorage.saveKV('roles', S.roles).catch(Seq.docs.storageError);
+  const saveRoles = () => { Seq.core.events.emit('roles:changed'); return Seq.repo.saveRoles(S.roles).catch(Seq.docs.storageError); };
   const roleById = (id) => id && (S.roles || []).find((r) => r.id === id);
   // Ekler isteğe bağlı satır sonuyla ayrılır: ön ekten sonra (prefixBreak) / son ekten önce (suffixBreak)
   // (satır sonu varken ekin o taraftaki boşluğu kırpılır: " Service" → "\nService")
@@ -57,30 +57,13 @@
     }
   }
 
-  /** Bir rolün tanımı değişti/silindi: bu tarayıcıdaki tüm diyagramlarda katılımcıları güncelle. */
-  function updateRoleEverywhere(old, cur) {
-    const transform = (model) => {
-      let changed = false;
-      model.participants.forEach((p) => {
-        if (p.role !== old.id) return;
-        changed = true;
-        if (!cur) { delete p.role; return; }
-        const base = stripAffixes(p.label, old);
-        p.type = cur.type;
-        p.color = cur.color;
-        p.label = composeLabel(cur, base);
-      });
-      return changed;
-    };
-    const marker = new RegExp('^\\s*%%\\s*@role\\s+' + old.id + '\\s*$', 'm');
-    S.docs.forEach((d) => {
-      if (S.doc && d.id === S.doc.id) return;
-      if (!marker.test(d.code)) return;
-      const m = M.parse(d.code);
-      if (transform(m)) d.code = M.serialize(m);
-    });
-    Seq.docs.persistDocs();
-    if (transform(S.model)) Seq.editor.commit();
+  /**
+   * Rol değişikliği yerleşti/rol silindi: eski hâl rolün geçmişine yazılır, açık akış hemen uyarlanır.
+   * Diğer akışlar yeniden yazılmaz; açılırken ya da okunurken uyarlanır (bkz. reconcile.js).
+   */
+  function settleRole(old, cur) {
+    if (Seq.reconcile.roleChanged(old, cur)) saveRoles();
+    Seq.reconcile.current(cur ? null : { goneRoles: [old.id] });
   }
   /** Rolü kullanan diyagram sayısı */
   function roleUsage(id) {
@@ -162,7 +145,7 @@
       pending.forEach((id) => {
         const old = snap.get(id);
         const cur = roleById(id);
-        if (old) updateRoleEverywhere(old, cur || null);
+        if (old) settleRole(old, cur || null);
         if (cur) snap.set(id, { ...cur }); else snap.delete(id);
       });
       pending.clear();
@@ -228,12 +211,7 @@
     };
     renderRows();
 
-    const uniqueRoleId = (name) => {
-      const base = M.slugify(name).toLowerCase() || 'role';
-      let id = base, k = 2;
-      while (roleById(id)) id = base + k++;
-      return id;
-    };
+    const uniqueRoleId = (name) => Seq.core.uniqueId(name, 'role', roleById);
     const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
     fileIn.addEventListener('change', async () => {
       const f = fileIn.files[0];
@@ -286,7 +264,7 @@
     return body;
   }
   /** Rolleri düzenle (Katalog ve roller penceresi, Roller sekmesi) */
-  const openRoles = () => Seq.library.open('roles');
+  const openRoles = () => Seq.router.go('settings/roles');
 
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
   function init() {

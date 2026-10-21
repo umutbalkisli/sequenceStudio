@@ -20,8 +20,17 @@
     Seq.layout.applyPin();
     Seq.palette.applyPalCompact();
     Seq.flow.renderBuilder();
-    Seq.drawer.renderDocList();
+    Seq.breadcrumb.render();
     Seq.preview.scheduleRender(0);
+    events.emit('lang:changed');
+  }
+
+  /** Önizleme başlığındaki görünüm denetimleri çalışma alanı ayarlarını gösterir */
+  function syncAppearance() {
+    el.mmTheme.value = Seq.workspace.get('mmTheme');
+    el.mirror.checked = !!Seq.workspace.get('mirror');
+    el.legend.checked = Seq.workspace.get('legend') !== false;
+    Seq.theme.configureMermaid();
   }
 
   async function boot() {
@@ -30,23 +39,23 @@
     $('#langLabel').textContent = I18N.getLang().toUpperCase();
     document.body.dataset.dropLabel = T('drop.file');
     Seq.theme.applyAppTheme();
-    el.mmTheme.value = S.settings.mmTheme;
-    el.mirror.checked = !!S.settings.mirror;
-    el.legend.checked = S.settings.legend !== false;
-    Seq.theme.configureMermaid();
-    // Veri: IndexedDB (gerekirse localStorage'dan taşınır)
-    const data = await window.SeqStorage.init();
+    // Veri: depo üzerinden (yerelde IndexedDB; gerekirse localStorage'dan taşınır); her şey etkin çalışma alanına aittir
+    const data = await Seq.repo.load();
+    Seq.workspace.load(data.workspace);
+    syncAppearance();
     S.docs = data.docs;
     S.folders = data.folders || [];
+    Seq.folders.normalize();
     S.roles = data.roles;
     S.catalog = data.catalog || [];
-    Seq.catalog.migrate();
     Seq.docs.applyRescue();
     if (!S.settings.firstUse) { S.settings.firstUse = Date.now(); saveSettings(); }
     if (data.migrated && data.migrated.count) toast(T('storage.migrated', { n: data.migrated.count }));
     if (data.mode !== 'idb') setTimeout(() => toast(T('storage.fallback'), 'err'), 600);
-    window.SeqStorage.requestPersist().then(() => Seq.backup.refreshBackupUi());
+    Seq.repo.requestPersist().then(() => Seq.backup.refreshBackupUi());
     if (!S.roles) { S.roles = Seq.roles.PRESET_ROLES.map(Seq.roles.presetRole); Seq.roles.saveRoles(); }
+    // Türü olmayan eski katalog öğeleri rollerden sonra türlenir (rolü actor olan kök öğe kişi olur)
+    Seq.catalog.migrate();
     Seq.palette.renderPalette();
     Seq.layout.setView(S.settings.view);
     if (S.settings.editorCollapsed) { $('#workspace').classList.add('editor-collapsed'); document.body.classList.add('editor-hidden'); }
@@ -67,8 +76,8 @@
    * Modüllerin olay bağlamaları bu sırayla yapılır (önce çekirdek ve tema, en son klavye kısayolları).
    * Modüller yüklenirken birbirine dokunmaz; tüm bağlantılar burada, her şey yüklendikten sonra kurulur.
    */
-  const INIT_ORDER = ['core', 'theme', 'drawer', 'preview', 'colors', 'legend', 'code', 'layout', 'roles', 'catalog', 'defsNotice', 'participants', 'flow', 'share',
-    'editor', 'help', 'export', 'versions', 'search', 'docs', 'refs', 'lint', 'backlinks', 'arch', 'present', 'backup', 'palette', 'shortcuts'];
+  const INIT_ORDER = ['core', 'router', 'workspace', 'theme', 'breadcrumb', 'preview', 'colors', 'legend', 'code', 'layout', 'roles', 'catalog', 'defsNotice', 'participants', 'flow', 'share',
+    'editor', 'help', 'export', 'versions', 'search', 'docs', 'refs', 'reconcile', 'lint', 'backlinks', 'arch', 'present', 'flowsPage', 'catalogPage', 'settingsPage', 'backup', 'palette', 'shortcuts'];
 
   function start() {
     INIT_ORDER.forEach((m) => Seq[m].init());
@@ -80,6 +89,7 @@
     boot();
   }
 
-  Seq.main = { start, applyLang };
+  Seq.core.events.on('workspace:changed', ({ key }) => { if (key !== 'name') { syncAppearance(); Seq.preview.scheduleRender(0); } });
+  Seq.main = { start, applyLang, syncAppearance };
   start();
 })(window.Seq = window.Seq || {});

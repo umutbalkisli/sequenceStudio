@@ -12,7 +12,7 @@ Mermaid is a good format for keeping diagrams next to code, but writing larger s
 
 - **Draw instead of type.** Add participants, connect them to create messages, and drag steps into loops and conditional blocks.
 - **Keep the text.** The visual editor and the Mermaid code stay in sync in both directions. You can switch between them at any time.
-- **Own your data.** Diagrams are stored in your browser (IndexedDB). Nothing leaves your machine unless you export or share it. Use **Back up** in the *My diagrams* menu to download the whole workspace — diagrams, folders, the catalog, roles and settings — as one file, and **Restore** to bring it back (merge or replace).
+- **Own your data.** Diagrams are stored in your browser (IndexedDB), in a single local *workspace* that holds your flows, folders, catalog, roles and diagram look (a shared, multi-workspace cloud edition is planned). Nothing leaves your machine unless you export or share it. Use **Back up** under *Settings › Data and backup* to download the whole workspace — diagrams, folders, the catalog, roles and settings — as one file, and **Restore** to bring it back (merge or replace).
 
 ## Features
 
@@ -43,10 +43,13 @@ Mermaid is a good format for keeping diagrams next to code, but writing larger s
 - **Presentation mode:** Play a flow full screen, message by message, for meetings (<kbd>P</kbd> or the ▶ button in the preview). Upcoming steps are dimmed or hidden, the current message is highlighted and read out in a caption; use the arrow keys, Space or a click to advance, or autoplay at a chosen pace. It starts from the selected message if there is one.
 - **Sharing:** A share link stores the compressed diagram in the URL itself, so no server is involved.
 - **Workspace**
+  - Separate screens with their own addresses, so you can deep-link and use the browser's back button: **Flows** (a library with a folder tree, sortable list, search, filter by catalog item, bulk move and delete), the flow editor, **Catalog** (a tree with an item page showing where it is used and what it talks to), **Architecture** and **Settings**.
   - Multiple diagrams with autosave, organized in folders and subfolders (drag and drop).
   - Search across all diagrams, participants and messages (<kbd>⌘/Ctrl</kbd>+<kbd>K</kbd>).
   - Per-diagram version history: automatic and named versions, with a preview and line diff, and one-click restore.
   - Backup and restore of the whole workspace.
+  - Every flow, folder, role and catalog item is saved as its own record, with a revision, who changed it and when, so the data is ready to be shared and synced in the coming cloud edition. Renaming a catalog item, a role or a flow does not rewrite the other flows; they pick up the change when they are opened.
+  - Read-only workspaces: without edit permission, flows, the catalog and settings can be viewed but not changed.
   - Templates for common flows (OAuth2, e-commerce checkout, event-driven messaging).
   - Import from `.mmd`, `.txt` or Markdown files.
   - Undo/redo, light and dark themes, and an English or Turkish interface.

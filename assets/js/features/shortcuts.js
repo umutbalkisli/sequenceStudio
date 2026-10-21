@@ -10,7 +10,7 @@
  *   when()   — ek koşul; false dönerse satır atlanır
  *   run(e)   — işlem
  *   keepDefault — true ise tarayıcının varsayılan davranışı engellenmez
- *   global   — true ise mimari ekranında da çalışır (diğerleri yalnızca akış ekranında)
+ *   global   — true ise her ekranda çalışır (diğerleri yalnızca akış düzenleyicide)
  */
 (function (Seq) {
   'use strict';
@@ -20,12 +20,11 @@
   /** Akış düzenleyicide seçili bir adım üzerinde çalışılıyor mu */
   const editingStep = () => Seq.layout.currentView() === 'builder' && !S.settings.editorCollapsed && !!S.selected && !modalOpen();
 
-  /** Escape: en üstteki katmanı kapatır (pencere → tam ekran → açılır panel → çekmece → odak/seçim) */
+  /** Escape: en üstteki katmanı kapatır (pencere → tam ekran → açılır panel → odak/seçim) */
   function escape(e, typing) {
     if (modalOpen()) return closeModal();
     if (Seq.layout.panePreview.classList.contains('pseudo-fullscreen')) return Seq.layout.toggleFullscreen();
     if (!el.popover.hidden) return Seq.participants.closePopover();
-    if (el.drawer.classList.contains('open')) return Seq.drawer.closeDrawer();
     if (typing) e.target.blur();
     else Seq.flow.setSelected(null);
   }
@@ -59,7 +58,7 @@
   function matches(s, e, mod, typing) {
     return s.keys.includes(e.key.toLowerCase())
       && flagOk(s.mod, mod) && flagOk(s.alt, e.altKey) && flagOk(s.shift, e.shiftKey)
-      && (s.global || !document.body.classList.contains('screen-arch'))
+      && (s.global || document.body.classList.contains('screen-editor'))
       && (s.typing !== false || !typing)
       && (!s.when || s.when());
   }

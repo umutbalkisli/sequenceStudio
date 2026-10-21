@@ -1,5 +1,5 @@
 // Dışa aktarma: arka plan seçenekleri, draw.io yapısı, klasör ZIP'i ve referansları içine çizme.
-import { test, expect, seed, openApp, getCode, openExport, download, readZip, doc, seq } from './helpers.mjs';
+import { test, expect, seed, openApp, getCode, openExport, openDocFromFlows, download, readZip, doc, seq } from './helpers.mjs';
 
 const primary = (page) => page.locator('.export-actions .btn.primary');
 
@@ -87,8 +87,7 @@ test.describe('klasör ve referanslar', () => {
     await expect(page.locator('.modal .opt-row', { hasText: 'Referanslar' })).toHaveCount(0);
     await page.keyboard.press('Escape');
 
-    await page.click('#btnDocs');
-    await page.locator('.doc-item', { hasText: 'Checkout' }).click();
+    await openDocFromFlows(page, 'Checkout');
     const saved = await getCode(page);
     await openExport(page, 'SVG');
     const refRow = page.locator('.modal .opt-row', { hasText: 'Referanslar' });
@@ -114,10 +113,9 @@ test.describe('klasör ve referanslar', () => {
     all.push(doc('dBad', 'Bozuk', seq('A->>B: x\nend\nloop\n'), { folder: 'fS' }));
     await seed(context, { docs: all, folders, current: 'dPlain', settings: { exp: { format: 'svg', scale: 1, bg: 'theme', refs: 'inline' } } });
     const page = await openApp(context);
-    await page.click('#btnDocs');
-    const head = page.locator('.folder-head', { has: page.locator('.fh-name', { hasText: /^Ödeme$/ }) });
-    await head.hover();
-    await head.locator('button[title="Klasörü dışa aktar"]').click();
+    await page.locator('#mainNav [data-nav="flows"]').click();
+    await page.locator('.fp-folder', { has: page.locator('.fp-fname', { hasText: /^Ödeme$/ }) }).click();
+    await page.locator('.fp-side-actions .btn', { hasText: 'Klasörü dışa aktar' }).click();
     await expect(page.locator('.fx-info')).toContainText('4 diyagram · 1 alt klasör');
     const zip = await download(page, () => primary(page).click());
     expect(zip.name).toBe('Ödeme.zip');

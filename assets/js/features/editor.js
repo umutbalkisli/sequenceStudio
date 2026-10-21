@@ -10,6 +10,12 @@
   // Çekirdek: kod <-> model akışı
   // ---------------------------------------------------------------------------
   function applyCode(code, src) {
+    // Salt okunur: değişiklik geri alınır (açılışta yükleme hariç)
+    if (src !== 'load' && !Seq.workspace.editable()) {
+      if (src === 'builder') { S.model = M.parse(S.code); Seq.flow.renderBuilder(); }
+      if (el.code.value !== S.code) el.code.value = S.code;
+      return;
+    }
     S.code = code;
     if (src !== 'builder') {
       S.model = M.parse(code);

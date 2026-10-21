@@ -1,6 +1,6 @@
 // Diyagramlar arası bağlantı (ref) ve paylaşım linki.
 import zlib from 'node:zlib';
-import { test, expect, seed, openApp, getCode, setView, openDocFromDrawer, openExport, download, doc, seq } from './helpers.mjs';
+import { test, expect, seed, openApp, getCode, setView, openDocFromFlows, deleteDocFromFlows, openExport, download, idbDump, doc, seq } from './helpers.mjs';
 
 const refDocs = () => [
   doc('dPay', 'Ödeme akışı', seq('participant G as Gateway\nparticipant P as Payment\nG->>P: charge\nP-->>G: ok\n'), { updated: Date.now() - 1000 }),
@@ -52,19 +52,17 @@ test.describe('referans', () => {
     page.on('dialog', (d) => d.accept());
     await page.fill('#docName', 'Ödeme akışı v2');
     await page.locator('#docName').press('Enter');
-    await expect(page.locator('.toast').last()).toContainText('güncellendi');
-    await openDocFromDrawer(page, 'Checkout');
+    // Eski ad akışın geçmişine yazılır; referans veren akış açılınca etiketi yeni ada geçer
+    await expect.poll(async () => (await idbDump(page)).docs.find((d) => d.id === 'dPay').past).toEqual(['Ödeme akışı']);
+    await openDocFromFlows(page, 'Checkout');
     expect(await refLine(page)).toBe('Note over O: Ödeme akışı v2');
 
     await page.locator('.step-ref textarea.text-input').fill('Ödeme detayları');
     await page.locator('.step-ref .ref-select').selectOption('dOther');
     expect(await getCode(page)).toMatch(/@ref dOther\n\s*Note over O: Ödeme detayları/);
 
-    await page.click('#btnDocs');
-    const item = page.locator('.doc-item', { hasText: 'Kayıt' });
-    await item.hover();
-    await item.locator('button[title="Sil"]').click();
-    await page.keyboard.press('Escape');
+    await deleteDocFromFlows(page, 'Kayıt');
+    await expect(page.locator('#docName')).toHaveValue('Checkout');
     await expect(page.locator('.paper g.ref-note.ref-broken text.noteText')).toHaveText('✕ Ödeme detayları');
     await expect(page.locator('.step-ref.ref-broken')).toHaveCount(1);
     await page.locator('.paper g.ref-note text.noteText').click();
@@ -168,9 +166,9 @@ test.describe('referansın içini açma', () => {
     await page.reload();
     await expect.poll(() => msgs(page)).toEqual(['checkout', 'create', 'charge', 'paid', '201']);
     // Geri bağlantı "expand" sonekine rağmen sayılır
-    await openDocFromDrawer(page, 'Ödeme akışı');
+    await openDocFromFlows(page, 'Ödeme akışı');
     await expect(page.locator('#btnBacklinks')).toHaveText('1');
-    await openDocFromDrawer(page, 'Checkout');
+    await openDocFromFlows(page, 'Checkout');
 
     await openExport(page, 'SVG');
     const svg = (await download(page, () => page.locator('.export-actions .btn.primary').click())).text();

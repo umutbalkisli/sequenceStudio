@@ -4,7 +4,7 @@
  */
 (function (Seq) {
   'use strict';
-  const { $, $$, S, T, clamp, el, icon, saveSettings } = Seq.core;
+  const { $, $$, S, T, clamp, el, icon, saveSettings, toast } = Seq.core;
 
   // ---------------------------------------------------------------------------
   // Görünüm sekmeleri
@@ -125,6 +125,22 @@
     document.addEventListener('webkitfullscreenchange', updateFullscreenUi);
     $('#btnCollapse').addEventListener('click', () => setEditorCollapsed(true));
     $('#btnExpand').addEventListener('click', () => setEditorCollapsed(false));
+
+    // Düzenleyici ekranı: "#/flows/<id>" (palet + görsel/kod düzenleyici + önizleme)
+    const showDoc = ({ id }) => {
+      if (!S.docs.some((d) => d.id === id)) { toast(T('route.noDoc'), 'err'); Seq.router.go('flows', { replace: true }); return; }
+      if (!S.doc || S.doc.id !== id) Seq.docs.openDoc(id);
+    };
+    Seq.router.register({
+      id: 'editor', nav: 'flows', pattern: /^flows\/([^/]+)$/, params: (m) => ({ id: decodeURIComponent(m[1]) }),
+      mount: (p) => {
+        showDoc(p);
+        // Gizliyken ölçülemeyen önizleme yeniden yerleşir
+        Seq.preview.scheduleRender(0);
+      },
+      update: showDoc,
+      unmount: () => { Seq.participants.closePopover(); if (Seq.present.isOpen()) Seq.present.close(); },
+    });
   }
 
   Seq.layout = { init, applyPin, currentView, panePreview, setEditorCollapsed, setView, toggleFullscreen };

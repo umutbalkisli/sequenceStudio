@@ -172,22 +172,14 @@
     btn.hidden = !prev;
     if (prev) { btn.lastChild.textContent = prev.name; btn.title = T('ref.backTitle'); }
   }
-  /** Diyagram yeniden adlandırılınca, ona bağlanan referansların (elle değiştirilmemiş) etiketlerini güncelle */
-  function propagateRefRename(id, oldName, newName) {
-    if (!oldName || oldName === newName) return;
-    const fix = (model) => {
-      let ch = false;
-      M.walk(model.items, (it) => { if (it.kind === 'note' && it.ref === id && it.text === oldName) { it.text = newName; ch = true; } });
-      return ch;
-    };
-    let n = 0;
-    S.docs.forEach((d) => {
-      if (d === S.doc || !d.code.includes('@ref ' + id)) return;
-      const m = M.parse(d.code);
-      if (fix(m)) { d.code = M.serialize(m); n++; }
-    });
-    if (S.doc && S.doc.id !== id && fix(S.model)) { Seq.editor.commit(); n++; }
-    if (n) { Seq.docs.persistDocs(); toast(T('ref.renamed', { n })); }
+  /**
+   * Diyagram yeniden adlandırıldı: eski ad akışın geçmişine yazılır. Ona bağlanan referansların (elle
+   * değiştirilmemiş) etiketleri, o akışlar açılırken/okunurken yeni ada geçer (tembel yayılım, reconcile.js).
+   */
+  function propagateRefRename(id, oldName) {
+    if (!Seq.reconcile.docRenamed(S.docs.find((d) => d.id === id), oldName)) return;
+    Seq.docs.persistDocs();
+    Seq.reconcile.current();
   }
 
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
@@ -200,7 +192,7 @@
     events.on('doc:opened', () => { if (!nav.keep) nav.stack = []; updateNavBack(); });
     // Açık diyagram silinen diyagrama bağlanıyorsa referans hemen "kopuk" görünsün
     events.on('doc:deleted', ({ id }) => { if (S.code.includes('@ref ' + id)) { Seq.flow.renderBuilder(); Seq.preview.scheduleRender(0); } });
-    events.on('doc:renamed', ({ id, from, to }) => propagateRefRename(id, from, to));
+    events.on('doc:renamed', ({ id, from }) => propagateRefRename(id, from));
     $('#navBack').addEventListener('click', navBack);
   }
 

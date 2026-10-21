@@ -8,12 +8,12 @@
 
   /** Klasör ağacındaki diyagramları (isteğe bağlı alt klasörlerle) yol bilgisiyle toplar. */
   function collectFolder(folderId, withSubs, base) {
-    const f = Seq.drawer.folderById(folderId);
+    const f = Seq.folders.folderById(folderId);
     const dir = (base ? base + '/' : '') + fileSafe(f.name);
     const out = { dirs: [dir], docs: [] };
     S.docs.filter((d) => d.folder === folderId).sort((a, b) => a.name.localeCompare(b.name, I18N.getLang()))
       .forEach((d) => out.docs.push({ d, dir }));
-    if (withSubs) Seq.drawer.childFolders(folderId).forEach((sf) => {
+    if (withSubs) Seq.folders.childFolders(folderId).forEach((sf) => {
       const sub = collectFolder(sf.id, true, dir);
       out.dirs.push(...sub.dirs);
       out.docs.push(...sub.docs);
@@ -22,11 +22,11 @@
   }
 
   function openFolderExport(folderId) {
-    const f = Seq.drawer.folderById(folderId);
+    const f = Seq.folders.folderById(folderId);
     if (!f) return;
     if (el.code.value !== S.code) Seq.editor.applyCode(el.code.value, 'code');
     const ex = S.settings.exp;
-    const hasSubs = Seq.drawer.childFolders(folderId).length > 0;
+    const hasSubs = Seq.folders.childFolders(folderId).length > 0;
     let withSubs = true;
     let busy = false;
     const body = h('div');

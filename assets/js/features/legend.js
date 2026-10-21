@@ -4,7 +4,7 @@
  */
 (function (Seq) {
   'use strict';
-  const { M, S, T, TONE_COLORS, colorOf, hexToRgb, mix } = Seq.core;
+  const { M, T, TONE_COLORS, colorOf, hexToRgb, mix } = Seq.core;
 
   // ---------------------------------------------------------------------------
   // Lejant: diyagramda kullanılan roller ve ok renkleri (önizlemede ve dışa aktarımlarda, altta)
@@ -23,7 +23,7 @@
     return items;
   }
   function addLegend(svg, model) {
-    if (!svg || S.settings.legend === false) return;
+    if (!svg || Seq.workspace.get('legend') === false) return;
     const items = legendItems(model);
     if (!items.length) return;
     const vbA = svg.getAttribute('viewBox');

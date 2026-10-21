@@ -17,7 +17,7 @@
   const ver = { docId: null, baseline: null, baselineTs: 0, editing: false, lastTs: 0, lastCode: null, loaded: false };
   function beginVersionSession(d) {
     Object.assign(ver, { docId: d.id, baseline: d.code, baselineTs: d.updated || Date.now(), editing: false, lastTs: 0, lastCode: null, loaded: false });
-    window.SeqStorage.listVersions(d.id).then((vs) => {
+    Seq.repo.versions.list(d.id).then((vs) => {
       if (ver.docId !== d.id) return;
       ver.loaded = true;
       if (vs[0]) { ver.lastCode = vs[0].code; ver.lastTs = vs[0].ts; }
@@ -30,7 +30,7 @@
     if (opts.label) v.label = opts.label;
     ver.lastTs = Date.now();
     ver.lastCode = code;
-    return window.SeqStorage.addVersion(v, KEEP_AUTO_VERSIONS).catch((e) => { Seq.docs.storageError(e); return null; });
+    return Seq.repo.versions.add(v, KEEP_AUTO_VERSIONS).catch((e) => { Seq.docs.storageError(e); return null; });
   }
   /** Kayıttan sonra çağrılır; force: diyagramdan çıkarken/kapanırken son hâli sakla. */
   function versionTick(force) {
@@ -117,7 +117,7 @@
       if (!sel) { detailEl.append(h('p', { class: 'hist-empty' }, T('hist.pick'))); return; }
       const tabs = h('div', { class: 'seg' }, [['preview', T('hist.tabPreview')], ['diff', T('hist.tabDiff')]].map(([v, l]) =>
         h('button', { class: tab === v ? 'active' : '', onclick: () => { tab = v; drawDetail(); } }, l)));
-      const meta = h('div', { class: 'hist-meta' }, h('b', null, fmtDate(sel.ts)), h('span', { class: 'hi-kind k-' + sel.kind }, T('hist.kind.' + sel.kind)), sel.label ? h('span', null, '· ' + sel.label) : null);
+      const meta = h('div', { class: 'hist-meta' }, h('b', null, fmtDate(sel.ts)), h('span', { class: 'hi-kind k-' + sel.kind }, T('hist.kind.' + sel.kind)), sel.label ? h('span', null, '· ' + sel.label) : null, sel.by ? h('span', { class: 'hist-by' }, '· ' + Seq.user.label(sel.by)) : null);
       const content = h('div', { class: 'hist-content' });
       if (tab === 'preview') {
         const a = h('div', { class: 'hist-img' }), b = h('div', { class: 'hist-img' });
@@ -146,7 +146,7 @@
       const actions = h('div', { class: 'hist-actions' },
         h('button', { class: 'btn ghost sm danger', onclick: () => {
           if (!confirm(T('hist.confirmDelete'))) return;
-          window.SeqStorage.deleteVersion(sel.vid, doc.id).then(load);
+          Seq.repo.versions.remove(sel.vid, doc.id).then(load);
         } }, ico('trash'), T('hist.delete')),
         h('div', { class: 'row', style: 'flex:none' },
           h('button', { class: 'btn sm', onclick: () => {
@@ -169,7 +169,7 @@
           } }, ico('undo'), T('hist.restore'))));
       add(detailEl, h('div', { class: 'hist-dhead' }, meta, tabs), content, actions);
     };
-    const load = () => window.SeqStorage.listVersions(doc.id).then((vs) => {
+    const load = () => Seq.repo.versions.list(doc.id).then((vs) => {
       versions = vs;
       sel = (sel && vs.find((v) => v.vid === sel.vid)) || vs[0] || null;
       drawList(); drawDetail();
@@ -188,7 +188,7 @@
     events.on('doc:opened', ({ doc }) => beginVersionSession(doc));
     events.on('doc:saved', () => versionTick(false));
     events.on('doc:leaving', () => versionTick(true));
-    events.on('doc:deleted', ({ id }) => window.SeqStorage.deleteVersionsOf(id).catch(Seq.docs.storageError));
+    events.on('doc:deleted', ({ id }) => Seq.repo.versions.removeAllOf(id).catch(Seq.docs.storageError));
     $('#btnHistory').addEventListener('click', openHistory);
   }
 

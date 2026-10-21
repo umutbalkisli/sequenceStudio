@@ -1,5 +1,5 @@
 // Sürüm geçmişi (otomatik/elle sürümler, karşılaştırma, geri dönme) ve ⌘K arama.
-import { test, expect, seed, openApp, setCode, getCode, setView, openDocFromDrawer, doc, seq, BLANK_URL } from './helpers.mjs';
+import { test, expect, seed, openApp, setCode, getCode, setView, openDocFromFlows, deleteDocFromFlows, doc, seq, BLANK_URL } from './helpers.mjs';
 
 const C0 = seq('participant O as Ödeme Servisi\nU->>O: GET api/merchants\n');
 const versions = (page, id) => page.evaluate((id) => window.SeqStorage.listVersions(id), id);
@@ -26,7 +26,7 @@ test.describe('sürüm geçmişi', () => {
     await prep.close();
     const page = await openApp(context);
     const stores = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('sequence-studio'); r.onsuccess = () => { res([r.result.version, [...r.result.objectStoreNames]]); r.result.close(); }; }));
-    expect(stores).toEqual([2, ['docs', 'kv', 'versions']]);
+    expect(stores).toEqual([4, ['entities', 'kv', 'versions']]); // 4: öğe bazlı kayıtlar
     expect(await getCode(page)).toBe(C0);
   });
 
@@ -49,7 +49,7 @@ test.describe('sürüm geçmişi', () => {
     await expect.poll(async () => (await versions(page, 'dA')).length).toBe(2);
 
     await setCode(page, C0 + 'O->>O: SON\n');
-    await openDocFromDrawer(page, 'Sipariş');
+    await openDocFromFlows(page, 'Sipariş');
     await expect.poll(async () => (await versions(page, 'dA'))[0]?.code).toContain('SON');
   });
 
@@ -98,10 +98,7 @@ test.describe('sürüm geçmişi', () => {
     const page = await openApp(context);
     page.on('dialog', (d) => d.accept());
     await page.evaluate(() => window.SeqStorage.addVersion({ vid: 'k1', docId: 'dB', ts: Date.now(), code: 'x', name: 'k', kind: 'manual' }, 50));
-    await page.click('#btnDocs');
-    const item = page.locator('.doc-item', { hasText: 'Sipariş' });
-    await item.hover();
-    await item.locator('button[title="Sil"]').click();
+    await deleteDocFromFlows(page, 'Sipariş');
     await expect.poll(async () => (await versions(page, 'dB')).length).toBe(0);
   });
 });

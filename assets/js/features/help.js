@@ -28,6 +28,7 @@
           <h4>${T('help.builder')}</h4>
           ${rows([
             [T('help.addP'), T('help.addPd')],
+            [T('help.nav'), T('help.navd')],
             [T('help.cat'), T('help.catd')],
             [T('help.arch'), T('help.archd')],
             [T('help.pres'), T('help.presd')],
@@ -95,5 +96,5 @@
     $('#btnHelp').addEventListener('click', openHelp);
   }
 
-  Seq.help = { init };
+  Seq.help = { init, openTemplates };
 })(window.Seq = window.Seq || {});

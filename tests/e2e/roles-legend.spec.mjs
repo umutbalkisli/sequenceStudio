@@ -12,13 +12,14 @@ async function withPresetPlusFraud(context) {
   const page = await openApp(context);
   await page.evaluate((f) => new Promise((res) => {
     const r = indexedDB.open('sequence-studio');
-    r.onsuccess = () => { const tx = r.result.transaction('kv', 'readwrite'); const st = tx.objectStore('kv'); st.get('roles').onsuccess = (e) => st.put(e.target.result.concat([f]), 'roles'); tx.oncomplete = () => { r.result.close(); res(); }; };
+    const meta = { rev: 1, createdAt: 1, createdBy: '', updatedAt: 1, updatedBy: '' };
+    r.onsuccess = () => { const tx = r.result.transaction('entities', 'readwrite'); tx.objectStore('entities').put({ key: 'local|role|' + f.id, ws: 'local', type: 'role', id: f.id, pos: 999, data: f, meta }); tx.oncomplete = () => { r.result.close(); res(); }; };
   }), FRAUD);
   await page.close();
 }
 
 test.describe('roller', () => {
-  test('rol çipiyle eklenen katılımcıya son ek uygulanır; rol düzenlemesi tüm diyagramlara yayılır', async ({ context }) => {
+  test('rol çipiyle eklenen katılımcıya son ek uygulanır; rol düzenlemesi diğer diyagramlara açılınca yansır', async ({ context }) => {
     await seed(context, {
       docs: [doc('d1', 'Aktif', seq('actor U as User\nU->>U: x\n')), doc('d2', 'Diğer', seq('%% @role service\n%% @color #2fbf7f\nparticipant S as Stock Service\nS->>S: x\n'), { updated: Date.now() - 1000 })],
       current: 'd1',
@@ -33,9 +34,15 @@ test.describe('roller', () => {
     const row = page.locator('.role-row:not(.role-head)').filter({ has: page.locator('.role-example', { hasText: 'Order Service' }) });
     await row.locator('.affix-cell').nth(1).locator('input').fill(' Svc');
     await expect.poll(() => getCode(page)).toContain('as Order Svc');
-    await expect.poll(() => page.evaluate(() => window.SeqStorage && new Promise((res) => {
-      const r = indexedDB.open('sequence-studio'); r.onsuccess = () => { r.result.transaction('docs').objectStore('docs').get('d2').onsuccess = (e) => res(e.target.result.code); };
-    }))).toContain('as Stock Svc');
+    // Diğer diyagram kayıtta değişmez; açılınca yeni ekle görünür
+    const stored = () => page.evaluate(() => new Promise((res) => {
+      const r = indexedDB.open('sequence-studio'); r.onsuccess = () => { r.result.transaction('entities').objectStore('entities').get('local|doc|d2').onsuccess = (e) => res(e.target.result.data.code); };
+    }));
+    await page.waitForTimeout(500);
+    expect(await stored()).toContain('as Stock Service');
+    await page.evaluate(() => window.Seq.router.openFlow('d2'));
+    await expect.poll(() => getCode(page)).toContain('as Stock Svc');
+    await expect.poll(stored).toContain('as Stock Svc');
   });
 
   test('tip elle değiştirilince rol bağlantısı kopar', async ({ context }) => {

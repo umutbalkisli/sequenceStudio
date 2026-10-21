@@ -17,11 +17,15 @@ assets/js/
     c4.js                  C4 views from the catalog + relationships derived from diagrams      → window.SeqC4
     drawio.js              rendered SVG → draw.io XML                                          → window.SeqDrawio
     zip.js                 minimal ZIP writer                                                   → Seq.zip
+    changeset.js           per-entity diff: revisions, tombstones                               → window.SeqChangeset
   core/                    shared infrastructure
     i18n.js                Turkish/English strings                                              → window.SeqI18n
     icons.js               inline SVG icons                                                     → window.SeqIcons
-    storage.js             IndexedDB (localStorage fallback), backups, versions                → window.SeqStorage
+    storage.js             local storage adapter: IndexedDB (localStorage fallback), versions   → window.SeqStorage
     core.js                DOM helpers, app state S, settings, modal/toast, event bus           → Seq.core
+    user.js                user identity (id, optional name)                                    → Seq.user
+    repo.js                repository: the only door to persistence, permission guard, status  → Seq.repo
+    router.js              hash routes → screens (deep links, back/forward)                    → Seq.router
   data/templates.js        starter diagrams
   features/                one file per feature                                                 → Seq.<feature>
   main.js                  initializes the features in order, then boots
@@ -29,6 +33,41 @@ tests/
   unit/                    node:test tests for lib/
   e2e/                     Playwright tests against index.html (file://)
 ```
+
+## Screens and routing
+
+The app is still a single page, because pages opened from `file://` don't reliably share IndexedDB.
+Every screen has an address, though, so deep links and the browser's back and forward buttons work:
+
+| Route | Screen | Module |
+|---|---|---|
+| `#/flows` | Flow library: folder tree, sortable table, search, filter by catalog item, bulk move/delete | `features/flows-page.js` |
+| `#/flows/<id>` | Flow editor: palette, builder/code, preview | `features/layout.js` (registers it) |
+| `#/catalog`, `#/catalog/<id>`, `#/catalog?match=1` | Catalog: tree + item detail (usage, relationships, children) / bulk linking | `features/catalog-page.js` |
+| `#/architecture[/<focus>]` | C4 views | `features/architecture.js` |
+| `#/settings[/general\|roles\|data]` | Language and theme, roles, backup and restore | `features/settings-page.js` |
+
+A screen registers itself with `Seq.router.register({ id, nav, pattern, params, mount, update, unmount })`.
+Adding a screen doesn't touch existing code. The router marks the active screen on `<body>` as
+`screen-<id>`. CSS hides editor-only parts (`.tb-doc-only`, palette, workspace) on the other screens, and
+the shortcut table runs rows without `global: true` only in the editor.
+
+`Seq.router.go(path)` navigates and mounts **synchronously**, so "open this flow, then reveal that
+participant" works in a single call; `openFlow(id)` is the usual shortcut. Opening another document in
+the editor updates the address (`doc:opened`), and creating one (`doc:created`) switches to the editor.
+Share links (`#s=…`) don't clash with routes (`#/…`).
+
+Pages re-render when data changes (`docs:persisted`, `catalog:changed`), but they compare a signature of
+the data first. That way a page that has just redrawn itself after its own change doesn't redraw again
+under the user's pointer. The architecture view also keeps the SVG when the generated Mermaid code is
+unchanged.
+
+Small, in-context tasks stay where the work happens: the catalog picker in the palette, "Save to catalog"
+in the participant panel, the "Link" fix in the diagram check and the ⌘K search. The top bar is the same on every screen. The editor adds a flow bar below it
+(`#docbar`): the flow's folder path, name, save state and history on the left, the diagram title in the
+middle, and undo/redo, templates, import and export on the right. The folder
+path (`features/breadcrumb.js`); each folder opens the Flows page filtered to it (`#/flows?folder=<id>`).
+Folder operations (create, rename, move, delete) live in `features/folders.js` (`Seq.folders`), without UI.
 
 ## Feature modules
 
@@ -71,15 +110,19 @@ The document lifecycle is published as events, so `docs.js` doesn't need to know
 
 | Event            | Payload            | Emitted when                                  | Listeners |
 |------------------|--------------------|-----------------------------------------------|-----------|
-| `doc:opened`     | `{ doc }`          | a diagram became the active one               | backlinks, defs-notice, drawer, refs, versions |
+| `doc:opened`     | `{ doc }`          | a diagram became the active one               | backlinks, breadcrumb, defs-notice, refs, versions |
 | `doc:leaving`    | `{ doc }`          | before switching away / closing the page      | versions |
 | `doc:saved`      | `{ doc }`          | the active diagram was saved                  | versions |
-| `doc:deleted`    | `{ id }`           | a diagram was deleted                         | backlinks, drawer, lint, refs, versions |
-| `doc:renamed`    | `{ id, from, to }` | the active diagram's name changed             | refs |
-| `docs:persisted` | none               | the workspace was written to storage          | backlinks, backup |
+| `doc:deleted`    | `{ id }`           | a diagram was deleted                         | backlinks, lint, refs, versions |
+| `doc:renamed`    | `{ id, from, to }` | the active diagram's name changed             | refs, reconcile |
+| `docs:persisted` | none               | the workspace was written to storage          | backlinks, backup, breadcrumb, flows page |
+| `workspace:changed` | `{ key }`       | workspace name or a look setting changed     | main (preview controls), settings |
 | `code:changed`   | `{ src }`          | the code/model changed (any source)           | lint |
 | `builder:rendered` | none             | the builder's step list was redrawn           | lint |
-| `catalog:changed` | none              | the catalog was edited                        | arch |
+| `catalog:changed` | none              | the catalog was edited                        | arch, reconcile |
+| `roles:changed`  | none               | the roles were edited                         | reconcile |
+| `repo:status`    | `{ state, error? }`| a write started (`saving`), finished (`saved`) or failed (`error`) | docs (save indicator) |
+| `user:changed`   | none               | the user's display name changed               | — |
 | `theme:changed`  | none               | Mermaid was re-initialized for a new theme    | arch |
 | `app:ready`      | none               | boot finished (data loaded, first doc open)   | arch |
 
@@ -187,15 +230,13 @@ preselected. It feeds the `catalogMatch` lint rule (through `Seq.lint.addRuleUi`
 description, a one-click fix and context functions to a rule) and the bulk **Link matches** view.
 
 A participant linked to an item takes its role and its name (`composeLabel(role, item.name)`). The name
-keeps following the item as long as it wasn't changed in that diagram. `features/library.js` shows both in
-one window with two tabs, and `features/defs-notice.js` offers to import unknown roles and items that come
-with shared diagrams. When references are expanded inline, participants linked to the same item are merged.
+keeps following the item as long as it wasn't changed in that diagram. The catalog has its own page
+(`features/catalog-page.js`) on top of the item operations in `features/catalog.js` (`createItem`,
+`updateItem`, `moveItem`, `removeItem`, import/export; edits propagate to diagrams after a short debounce).
+Roles live under Settings. `features/defs-notice.js` offers to import unknown roles and items that come with
+shared diagrams. When references are expanded inline, participants linked to the same item are merged.
 
 ## Architecture screen (C4)
-
-The top bar switches between two screens in the same page: **Flows** (sequence diagrams) and
-**Architecture**. Staying in one page keeps a single IndexedDB origin, which separate pages opened from
-`file://` would not reliably share.
 
 The architecture screen draws C4 views from two inputs, so it needs no extra maintenance:
 
@@ -232,9 +273,94 @@ and a "curtain" rect covers everything below the current step. Upcoming messages
 bars and blocks that haven't started yet are revealed as the curtain moves down. While it is open, the module
 handles every key itself, so the app shortcuts don't run.
 
+## Workspace
+
+All content belongs to a **workspace**: flows, folders, roles, the catalog, and the diagram look (Mermaid
+theme, bottom headers, legend). Personal preferences (language, app theme, layout, panel state) don't belong
+to it. They stay in `S.settings` (localStorage) and are per user and per device.
+
+- **Local edition:** there is exactly one workspace, `{ id: 'local', kind: 'local' }`. It is created on
+  first start, and the user can rename it but can't create another one. The badge next to the logo shows it,
+  and its settings live under *Settings › Workspace*.
+- **Cloud edition (planned):** the same model holds several workspaces, shared among their members. The
+  badge becomes a switcher.
+- **Storage:** every record carries its workspace id (`ws`, see *Entity storage* below). Workspace records
+  (`{ id, kind, name, role, settings }`) live in the global `workspaces` key of the `kv` store.
+- **API:** `features/workspace.js` (`Seq.workspace.get/set/rename/load`) reads and writes workspace
+  settings and emits `workspace:changed`. On first start it moves the look settings that earlier versions
+  kept in personal settings.
+- **Permissions:** the workspace record's `role` (`owner` | `editor` | `viewer`) decides what the user may
+  do: `Seq.workspace.can('edit' | 'admin')`. Locally the user is the owner; in the cloud the role comes from
+  the membership. Without `edit` the app runs **read-only**: `body.readonly` hides or locks the editing UI
+  (`.edit-only`, palette, builder, code editor, catalog form, locked settings sections), mutating functions
+  start with `Seq.workspace.editable()` (which refuses with a toast), and `Seq.repo` doesn't write.
+- **Backups:** a backup carries the workspace (`name`, `settings`). Restoring binds the flows to the active
+  workspace, and *Replace all* also restores the name and look.
+
 ## State and storage
 
-`Seq.core.S` holds the runtime state: `docs`, `folders`, `roles`, `catalog`, `settings`, the active `doc`, its
+`Seq.core.S` holds the runtime state: `workspace`, `docs`, `folders`, `roles`, `catalog`, `settings` (personal), the active `doc`, its
 parsed `model`, the `code` text and the current `selected` step. `features/editor.js` owns changes to
 the model (`commit`, `applyCode`, undo/redo). `features/docs.js` owns opening, saving and persisting
-diagrams. `core/storage.js` is the only file that talks to IndexedDB/localStorage.
+diagrams.
+
+### Repository (`Seq.repo`)
+
+Features never touch storage directly; they call `Seq.repo` (`saveDocs`, `saveFolders`, `saveRoles`,
+`saveCatalog`, `saveWorkspace`, `versions.list/add/remove/removeAllOf`, `meta`, `deleted`, `estimate`…).
+The repository forwards to an **adapter**. The local edition's adapter is `core/storage.js`; a cloud edition
+adds a server adapter with the same contract (documented at the top of `core/repo.js`) and the features stay
+unchanged. The repository also:
+
+- refuses writes when the workspace is read-only;
+- stamps version records with the author (`by`);
+- publishes the write state as `repo:status` (`saving` → `saved`, or `error` until the next successful data
+  write). The flow bar's save indicator listens to it; a sync state would use the same path.
+
+### Entity storage (IndexedDB v4)
+
+Flows, folders, roles and catalog items are stored **one record per item** in the `entities` store
+(index `ws`), so a change writes only that item and a future sync can merge per item:
+
+```
+{ key: "<ws>|<type>|<id>", ws, type: 'doc' | 'folder' | 'role' | 'catalog', id, pos, data, meta }
+meta = { rev, createdAt, createdBy, updatedAt, updatedBy, deleted? }
+```
+
+`lib/changeset.js` compares the last written state with the new list: new or changed items get `rev + 1`,
+`updatedAt` and `updatedBy` (the user id from `Seq.user`); an item that left the list is not removed but
+leaves a **tombstone** (`deleted: true`, `data: null`), so another device can learn that it was deleted.
+`pos` keeps the order of folders, roles and the catalog; flows are unordered (`ordered: false`).
+The `kv` store keeps only small global values (`migrated`, `workspaces`, `ws:<id>:rolesInit`), and
+`versions` keeps the history.
+
+Upgrades run in one versionchange transaction, so either all of them apply or none: v2 adds `versions`,
+v3 binds data to the local workspace, v4 moves the `docs` store and the `kv` lists into `entities`
+(the old store and keys are removed). If IndexedDB can't be opened, the adapter falls back to plain
+localStorage lists (no metadata).
+
+### IDs and identity
+
+Catalog item and role IDs are a slug of the name plus a random suffix (`ledger-k3f9`, `Seq.core.uniqueId`),
+so two people creating "Ledger" at the same time never collide. Flow and folder IDs are time-based random
+strings. `core/user.js` gives every browser a user id (`seqstudio.user` in localStorage) and an optional
+display name (*Settings › Personal*); in the cloud both come from the signed-in account.
+
+### Lazy propagation (`features/reconcile.js`)
+
+Renaming a catalog item, changing a role, or renaming a flow doesn't rewrite the other flows; in a shared
+workspace one change would otherwise touch hundreds of records and cause conflicts. Instead, definitions
+keep a short history (`item.past`, `role.past`, `doc.past`, at most 10 entries), and flows are adapted when
+they are read:
+
+- A participant linked to an item takes the new name if its label is one of the item's old or current names
+  (with old or current role affixes). It takes the new look if its look was one of the old looks. Labels and
+  looks that were changed by hand stay.
+- A participant with only a role gets the new look the same way. Its label is rewritten with the new affixes
+  if it was written with old ones.
+- A link to a deleted item or role (tombstone) is removed.
+- A reference note whose text is one of the target flow's old names takes the new name.
+
+The open flow is adapted right away. Other flows are adapted when opened (`docs.openDoc`, then saved) and,
+in memory, whenever they are read through `Seq.core.docCode` (preview, architecture view, exports, search),
+which is memoized until a definition changes.

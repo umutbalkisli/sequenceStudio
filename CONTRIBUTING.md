@@ -30,6 +30,13 @@ The e2e tests fail on any uncaught page error. To debug one test: `npx playwrigh
   file in `features/` with an `init()`. Use the extension points (events, preview pipeline, export
   formats, step types, shortcut table) instead of adding `if (kind === …)` branches to existing code.
 - **New script?** Add it to `index.html` (and to `INIT_ORDER` in `main.js` if it has `init()`).
+- **New screen?** Register it with `Seq.router.register` in your module's `init()` and add a `<section>` for it in `index.html`. See *Screens and routing* in the architecture doc.
+- **Persistence goes through `Seq.repo`.** Don't call `window.SeqStorage` or IndexedDB from a feature; a cloud
+  adapter will replace the local one behind the repository.
+- **Changing content?** Start the function with `if (!Seq.workspace.editable()) return …` so read-only
+  workspaces stay read-only, and mark creation buttons with the `edit-only` class.
+- **Don't rewrite other flows** when a definition changes; record the old state and let
+  `features/reconcile.js` adapt flows when they are read (see *Lazy propagation*).
 - **Strings** go to both languages in `core/i18n.js`.
 - **Every behavior change gets a test.** A bug fix gets a test that would have caught it.
 - Match the surrounding style: small functions, short doc comments on anything public.

@@ -51,6 +51,16 @@
     t.innerHTML = icon(name);
     return t.content.firstChild;
   }
+  /**
+   * Okunabilir ve çakışmayan kimlik: ad kısaltması + 4 karakterlik rastgele sonek (ör. "ledger-k3f9"). Paylaşılan
+   * çalışma alanında iki kişi aynı adla (çevrimdışıyken bile) öğe oluştursa kimlikler çakışmaz.
+   */
+  function uniqueId(name, fallback, exists) {
+    const base = (M.slugify(String(name || '')).toLowerCase() || fallback).slice(0, 40);
+    let id;
+    do id = base + '-' + Math.random().toString(36).slice(2, 6).padEnd(4, '0'); while (exists && exists(id));
+    return id;
+  }
   const debounce = (fn, ms) => {
     let t;
     return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
@@ -86,14 +96,17 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
   };
 
-  const DEFAULT_SETTINGS = { appTheme: 'system', mmTheme: 'auto', mirror: true, editorCollapsed: false, editorW: null, view: 'builder', pinParts: true, palCompact: false, legend: true, exp: { format: 'png', scale: 2, bg: 'theme' } };
+  // Kişisel (cihaza bağlı) ayarlar. Diyagram görünümü (Mermaid teması, alt başlıklar, lejant) çalışma alanına aittir.
+  const DEFAULT_SETTINGS = { appTheme: 'system', editorCollapsed: false, editorW: null, view: 'builder', pinParts: true, palCompact: false, exp: { format: 'png', scale: 2, bg: 'theme' } };
 
   // ---------------------------------------------------------------------------
   // Durum
   // ---------------------------------------------------------------------------
   const S = {
     settings: Object.assign({}, DEFAULT_SETTINGS, store.get(LS.set, {})),
-    docs: [], // init() içinde SeqStorage'dan (IndexedDB) yüklenir
+    // Etkin çalışma alanı (açılışta depodan gelir; yerel sürümde tek ve sabit)
+    workspace: { id: 'local', kind: 'local', name: '', settings: {} },
+    docs: [], // açılışta Seq.repo'dan yüklenir
     folders: [],
     doc: null,
     code: '',
@@ -131,7 +144,7 @@
     undo: $('#btnUndo'), redo: $('#btnRedo'),
     viewSeg: $('#viewSeg'), viewBuilder: $('#viewBuilder'), viewCode: $('#viewCode'),
     autonum: $('#optAutonumber'), autoAct: $('#optAutoAct'), title: $('#diagramTitle'),
-    palP: $('#palParticipants'), palS: $('#palSteps'), palR: $('#palRoles'),
+    palS: $('#palSteps'), palR: $('#palRoles'),
     participants: $('#participants'), flow: $('#flow'), bscroll: $('#builderScroll'),
     partCount: $('#partCount'), stepCount: $('#stepCount'),
     code: $('#code'), codeHl: $('#codeHl'), gutter: $('#gutter'), codeStatus: $('#codeStatus'),
@@ -139,7 +152,7 @@
     zoomVal: $('#zoomVal'), mmTheme: $('#mmTheme'), mirror: $('#optMirror'), legend: $('#optLegend'),
     popover: $('#popover'), overlay: $('#linkOverlay'), linkPath: $('#linkPath'),
     modalRoot: $('#modalRoot'), modalTitle: $('#modalTitle'), modalBody: $('#modalBody'),
-    drawer: $('#drawer'), scrim: $('#scrim'), docList: $('#docList'), fileInput: $('#fileInput'),
+    fileInput: $('#fileInput'),
   };
 
   // --- Katılımcı renkleri ---
@@ -248,7 +261,8 @@
   function closeModal() { el.modalRoot.hidden = true; el.modalBody.innerHTML = ''; }
 
   const fileSafe = (n) => String(n || '').replace(/[\\/:*?"<>|\n\r]+/g, '-').trim() || 'diagram';
-  const docCode = (d) => (S.doc && d.id === S.doc.id ? S.code : d.code);
+  /** Akışın güncel kodu: açık akış için editördeki, diğerleri için güncel tanımlara uyarlanmış kayıtlı kod (tembel yayılım) */
+  const docCode = (d) => (S.doc && d.id === S.doc.id ? S.code : Seq.reconcile ? Seq.reconcile.docCode(d) : d.code);
 
   /** Olay bağlamaları ve açılış ayarları (tüm modüller yüklendikten sonra çağrılır). */
   function init() {
@@ -256,5 +270,5 @@
     $('[data-close]', el.modalRoot).addEventListener('click', closeModal);
   }
 
-  Seq.core = { init, events, $, $$, DEFAULT_SETTINGS, I18N, LS, M, PCOLORS, S, T, TONE_COLORS, add, clamp, closeModal, colorOf, debounce, docCode, downloadBlob, dropdown, el, esc, fileSafe, fitTextarea, h, hexToRgb, hydrate, ico, icon, isMac, mix, multiline, norm, oneLine, openModal, participantById, saveSettings, store, timeAgo, toast, tplL };
+  Seq.core = { init, events, $, $$, DEFAULT_SETTINGS, I18N, LS, M, PCOLORS, S, T, TONE_COLORS, add, clamp, closeModal, colorOf, debounce, docCode, downloadBlob, dropdown, el, esc, fileSafe, fitTextarea, h, hexToRgb, hydrate, ico, icon, isMac, mix, multiline, norm, oneLine, openModal, participantById, saveSettings, store, timeAgo, toast, tplL, uniqueId };
 })(window.Seq = window.Seq || {});
