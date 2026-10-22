@@ -575,7 +575,8 @@
         });
         const order = host.participants.map((p) => p.id).filter((id) => involved.has(id));
         const span = order.length > 1 ? [order[0], order[order.length - 1]] : [order[0] || it.targets[0]];
-        const header = { uid: uid(), kind: 'note', position: 'over', targets: span, text: src.name, ref: it.ref, refHeader: true, refKey };
+        // Başlık, kapalıyken görünen açıklamadır (not metni); boşsa bağlı akışın adı
+        const header = { uid: uid(), kind: 'note', position: 'over', targets: span, text: String(it.text || '').trim() || src.name, ref: it.ref, refHeader: true, refKey };
         const tint = 'rgba(58, 141, 222, ' + (0.07 + Math.min(stack.length, 4) * 0.035).toFixed(3) + ')';
         items.splice(i, 1, { uid: uid(), kind: 'block', type: 'rect', branches: [{ uid: uid(), label: tint, items: [header].concat(sub.items) }] });
       }

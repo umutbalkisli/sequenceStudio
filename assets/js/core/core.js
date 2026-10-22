@@ -220,6 +220,42 @@
   // Açılır panel: bir düğmenin altında açılır; dışarı tıklama, Escape ve pencere boyutu değişimi kapatır.
   // render(panel) içeriği çizer. Döner: { el, refresh(), close() }
   // ---------------------------------------------------------------------------
+  /**
+   * İki sütunlu ızgarada sürüklenebilir ayırıcı. Sol sütunun payı (0–1) kişisel ayarda `key` adıyla saklanır;
+   * varsayılan `def` (ör. 0.5: ortada). Izgaranın sütunları "var(--split) <ayırıcı> 1fr" olmalıdır.
+   * Fare/dokunmayla sürüklenir, ←/→ ile kaydırılır, çift tıklama varsayılana döndürür. Döner: ayırıcı öğesi.
+   */
+  function splitter(grid, { key, def = 0.5, minPx = 240, minRightPx = 360, label }) {
+    const bar = h('div', { class: 'split-bar', role: 'separator', 'aria-orientation': 'vertical', tabindex: '0', title: label, 'aria-label': label });
+    const clampFr = (fr) => {
+      const w = grid.clientWidth;
+      if (!w) return clamp(fr, 0.1, 0.9); // henüz yerleşmedi (ör. sayfa kurulurken): ölçü yok
+      return clamp(fr, Math.min(0.5, minPx / w), Math.max(0.5, 1 - minRightPx / w));
+    };
+    const apply = (fr) => { grid.style.setProperty('--split', (clampFr(fr) * 100).toFixed(2) + '%'); bar.setAttribute('aria-valuenow', Math.round(clampFr(fr) * 100)); };
+    const save = (fr) => { S.settings[key] = Math.round(clampFr(fr) * 1000) / 1000; saveSettings(); };
+    apply(S.settings[key] || def);
+    bar.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      bar.setPointerCapture(e.pointerId);
+      bar.classList.add('dragging');
+      const left = grid.getBoundingClientRect().left;
+      let fr = S.settings[key] || def;
+      const move = (ev) => { fr = (ev.clientX - left) / grid.clientWidth; apply(fr); };
+      bar.addEventListener('pointermove', move);
+      bar.addEventListener('pointerup', () => { bar.removeEventListener('pointermove', move); bar.classList.remove('dragging'); save(fr); }, { once: true });
+    });
+    bar.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const fr = clampFr((S.settings[key] || def) + (e.key === 'ArrowLeft' ? -0.02 : 0.02));
+      apply(fr);
+      save(fr);
+    });
+    bar.addEventListener('dblclick', () => { apply(def); save(def); });
+    return bar;
+  }
+
   function dropdown(anchor, render, opts) {
     opts = opts || {};
     const panel = h('div', { class: 'dropdown' + (opts.class ? ' ' + opts.class : ''), role: 'dialog', 'aria-label': opts.label || null });
@@ -270,5 +306,5 @@
     $('[data-close]', el.modalRoot).addEventListener('click', closeModal);
   }
 
-  Seq.core = { init, events, $, $$, DEFAULT_SETTINGS, I18N, LS, M, PCOLORS, S, T, TONE_COLORS, add, clamp, closeModal, colorOf, debounce, docCode, downloadBlob, dropdown, el, esc, fileSafe, fitTextarea, h, hexToRgb, hydrate, ico, icon, isMac, mix, multiline, norm, oneLine, openModal, participantById, saveSettings, store, timeAgo, toast, tplL, uniqueId };
+  Seq.core = { init, events, $, $$, DEFAULT_SETTINGS, I18N, LS, M, PCOLORS, S, T, TONE_COLORS, add, clamp, closeModal, colorOf, debounce, docCode, downloadBlob, dropdown, el, esc, fileSafe, fitTextarea, h, hexToRgb, hydrate, ico, icon, isMac, mix, multiline, norm, oneLine, openModal, participantById, saveSettings, store, timeAgo, toast, tplL, uniqueId, splitter };
 })(window.Seq = window.Seq || {});

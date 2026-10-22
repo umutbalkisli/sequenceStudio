@@ -51,6 +51,7 @@
     side = h('aside', { class: 'fp-side' });
     table = h('div', { class: 'fp-table', role: 'table' });
     bulk = h('div', { class: 'fp-bulk', hidden: true });
+    const body = h('div', { class: 'fp-body' });
     root.append(
       h('div', { class: 'page-head' },
         h('h1', null, ico('file'), T('flows.title')),
@@ -59,11 +60,12 @@
           h('button', { class: 'btn ghost sm edit-only', onclick: () => Seq.help.openTemplates() }, ico('layout'), T('tb.templates')),
           h('button', { class: 'btn ghost sm edit-only', onclick: () => el.fileInput.click() }, ico('upload'), T('tb.import')),
           h('button', { class: 'btn primary sm edit-only', id: 'flowsNew', onclick: newFlow }, ico('plus'), T('flows.new')))),
-      h('div', { class: 'fp-body' },
-        side,
-        h('main', { class: 'fp-main' },
-          h('div', { class: 'fp-filters' }, search, itemSel),
-          bulk, table)));
+      body);
+    // Klasör ağacı ile liste arasındaki ayırıcı: klasör adları kısa olduğundan varsayılan dar; sürüklenebilir (kişisel ayar)
+    body.append(side, Seq.core.splitter(body, { key: 'flowsSplit', def: 0.27, minPx: 200, minRightPx: 480, label: T('flows.splitTitle') }),
+      h('main', { class: 'fp-main' },
+        h('div', { class: 'fp-filters' }, search, itemSel),
+        bulk, table));
   }
   /** Adresle gelen klasör seçimi (yol göstergesinden): bilinmeyen klasörde tüm akışlar */
   function pickFolder(id) {

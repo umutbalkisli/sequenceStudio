@@ -208,8 +208,13 @@ describe('referansları açma (expandRefs)', () => {
     assert.deepEqual(keys, ['/pay#1', '/pay#1/tds#1', '/pay#2']);
     const notes = items(r.model, 'note');
     assert.deepEqual(notes.filter((n) => n.ref).map((n) => [n.text, n.refKey, !!n.refHeader]),
-      [['Ödeme akışı', '/pay#1', true], ['3DS', '/pay#1/tds#1', false], ['Tekrar', '/pay#2', false]]);
+      [['Ödeme', '/pay#1', true], ['3DS', '/pay#1/tds#1', false], ['Tekrar', '/pay#2', false]]);
     assert.ok(items(r.model, 'message').every((x) => x.fromRef === 'pay'));
+  });
+
+  test('açılan referansın başlığı not metnidir (açıklama); not boşsa akışın adı', () => {
+    const r = M.expandRefs(M.parse(seq('participant O as Order\n%% @ref pay\nNote over O: Kart ödemesi\n%% @ref pay\nNote over O: \n')), resolve, { shouldExpand: (n, k) => k.split('/').length === 2 }); // yalnızca ilk düzey
+    assert.deepEqual(items(r.model, 'note').filter((n) => n.refHeader).map((n) => n.text), ['Kart ödemesi', 'Ödeme akışı']);
   });
 
   test('eksik hedef raporlanır; girdi model değişmez', () => {

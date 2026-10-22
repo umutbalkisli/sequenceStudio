@@ -61,7 +61,14 @@
           h('button', { class: 'btn ghost sm', onclick: () => cat().exportFile() }, ico('download'), T('role.export')),
           h('button', { class: 'btn primary sm edit-only', id: 'catNew', onclick: () => addItem(null) }, ico('plus'), T('cat.add')),
           fileIn)),
-      h('div', { class: 'cp-body' }, side, main));
+      cpBody(side, main));
+  }
+
+  /** Ağaç ve ayrıntı arasındaki ayırıcı: varsayılan ortada, kullanıcı sağa sola kaydırabilir (kişisel ayar) */
+  function cpBody(left, right) {
+    const body = h('div', { class: 'cp-body' });
+    body.append(left, Seq.core.splitter(body, { key: 'catSplit', def: 0.5, minPx: 260, minRightPx: 380, label: T('cat.splitTitle') }), right);
+    return body;
   }
 
   function addItem(parent) {

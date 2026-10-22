@@ -101,8 +101,11 @@ Rules:
   `INIT_ORDER`.
 - **Talk through the public object.** Whatever is on `Seq.<name>` is the module's API. Everything else
   is private to the file.
-- **Shared UI pieces** live in `core.js`: `h` (element builder), `ico`, `toast`, `openModal`, and
-  `dropdown(anchor, render, opts)` for small popup lists (used by the lint and backlinks badges).
+- **Shared UI pieces** live in `core.js`: `h` (element builder), `ico`, `toast`, `openModal`,
+  `dropdown(anchor, render, opts)` for small popup lists (used by the lint and backlinks badges), and
+  `splitter(grid, { key, def })` for a draggable column divider whose position is a personal setting
+  (used between the catalog tree and the item page, centered by default, and between the folder tree and
+  the flow list, 27% by default).
 - **One reason to change.** If a file starts covering two concerns, split it. Shared helpers go to
   `core.js`. Pure logic that doesn't need the DOM goes to `lib/`, where it can be unit tested.
 
@@ -155,7 +158,9 @@ The live preview and the off-screen renderer (used by exports) run the same pipe
 Expanding a reference in the preview uses the same `expandRefs` as inline export, with a
 `shouldExpand(note, key)` filter. Every reference note gets a path key (`/pay#1/tds#1`), so nested references
 can be toggled one by one. The default comes from the note's `expand` flag. The +/− on the note stores a
-session override per diagram.
+session override per diagram. An expanded reference is drawn as a box whose header is the note's own text (the
+description), so the label is the same expanded or collapsed; the target flow's name is used only when the
+note is empty.
 
 ### Export formats (`Seq.export.registerFormat`)
 

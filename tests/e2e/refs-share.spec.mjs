@@ -131,6 +131,19 @@ test.describe('referansın içini açma', () => {
   ];
   const msgs = (page) => page.locator('#canvas text.messageText').allTextContents();
 
+  test('açıklama her durumda görünür: kapalıyken not, açıkken başlık olarak (akış adı değil)', async ({ context }) => {
+    const d = docs();
+    d[0].code = d[0].code.replace('Note over O: Ödeme akışı', 'Note over O: Kartla ödeme alınır');
+    await seed(context, { docs: d, current: 'co' });
+    const page = await openApp(context);
+    const refText = () => page.locator('#canvas g.ref-note text.noteText').first();
+    await expect(refText()).toHaveText('↗ Kartla ödeme alınır');
+    await page.locator('#canvas .ref-toggle').click();
+    await expect(page.locator('#canvas .ref-toggle.open')).toHaveCount(1);
+    await expect(refText()).toContainText('Kartla ödeme alınır');
+    await expect(page.locator('#canvas text.noteText', { hasText: 'Ödeme akışı' })).toHaveCount(0);
+  });
+
   test('önizlemede +/− ile yerinde açılır ve kapanır; tıklamalar doğru adıma ya da bağlı diyagrama gider', async ({ context }) => {
     await seed(context, { docs: docs(), current: 'co' });
     const page = await openApp(context);

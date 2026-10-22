@@ -172,6 +172,28 @@ test.describe('akışlar sayfası', () => {
     await expect.poll(state).toEqual({ folders: ['Sipariş', 'Ödeme'], docs: { 'Kart ile ödeme': 'Ödeme', '3DS doğrulama': 'Ödeme', 'Sipariş iptali': 'Sipariş' } });
   });
 
+  test('klasör ağacı varsayılan olarak dar ama eskisinden geniş; ayırıcı sürüklenir, hatırlanır, çift tıkla varsayılana döner', async ({ context }) => {
+    await seed(context, { docs: docs(), current: 'a', folders: FOLDERS });
+    const page = await openApp(context, { hash: '/flows' });
+    const width = () => page.evaluate(() => document.querySelector('.fp-side').offsetWidth);
+    const ratio = () => page.evaluate(() => document.querySelector('.fp-side').offsetWidth / document.querySelector('.fp-body').clientWidth);
+    expect(Math.abs(await ratio() - 0.27)).toBeLessThan(0.02);
+    expect(await width()).toBeGreaterThan(280);
+    const bar = page.locator('.fp-body .split-bar');
+    const box = await bar.boundingBox();
+    const body = await page.locator('.fp-body').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + 80);
+    await page.mouse.down();
+    await page.mouse.move(body.x + body.width * 0.45, box.y + 80, { steps: 6 });
+    await page.mouse.up();
+    expect(Math.abs(await ratio() - 0.45)).toBeLessThan(0.02);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.reload();
+    expect(Math.abs(await ratio() - 0.45)).toBeLessThan(0.02);
+    await page.locator('.fp-body .split-bar').dblclick();
+    expect(Math.abs(await ratio() - 0.27)).toBeLessThan(0.02);
+  });
+
   test('düzenleyicide akışın klasör yolu gösterilir; klasöre tıklayınca Akışlar o klasörde açılır', async ({ context }) => {
     await seed(context, { docs: docs(), current: 'c', folders: FOLDERS });
     const page = await openApp(context);

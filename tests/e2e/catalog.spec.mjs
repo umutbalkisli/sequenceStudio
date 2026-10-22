@@ -341,3 +341,28 @@ test('rol isteğe bağlı: rolsüz öğenin görünümü türden gelir; tür de�
   await row.locator('.cat-role').selectOption('');
   await expect.poll(() => getCode(page)).toMatch(/%% @item billing\n\s*%% @color #6c7cff\n\s*actor Billing as Billing\n|%% @item billing\n\s*%% @color #6c7cff\n\s*actor Billing\n/);
 });
+
+test('katalog sayfasında ağaç/ayrıntı ayırıcısı ortada başlar; sürüklenir, klavyeyle kayar, hatırlanır, çift tıkla ortalanır', async ({ context }) => {
+  await seed(context, { docs: [doc('d1', 'A', seq('participant X\nX->>X: y\n'))], current: 'd1', catalog: CATALOG });
+  const page = await openApp(context, { hash: '/catalog' });
+  const ratio = () => page.evaluate(() => document.querySelector('.cp-side').offsetWidth / document.querySelector('.cp-body').clientWidth);
+  expect(Math.abs(await ratio() - 0.5)).toBeLessThan(0.02);
+  const bar = page.locator('.cp-body .split-bar');
+  const box = await bar.boundingBox();
+  const body = await page.locator('.cp-body').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(body.x + body.width * 0.3, box.y + 100, { steps: 6 });
+  await page.mouse.up();
+  expect(Math.abs(await ratio() - 0.3)).toBeLessThan(0.02);
+  await bar.focus();
+  await page.keyboard.press('ArrowRight');
+  expect(Math.abs(await ratio() - 0.32)).toBeLessThan(0.02);
+  // Sayfa yatay taşmaz; ayar kişiseldir ve hatırlanır
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.reload();
+  expect(Math.abs(await ratio() - 0.32)).toBeLessThan(0.02);
+  await page.locator('.cp-body .split-bar').dblclick();
+  expect(Math.abs(await ratio() - 0.5)).toBeLessThan(0.02);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('seqstudio.settings')).catSplit)).toBe(0.5);
+});
